@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+env/
+venv/
+*.egg-info/
+
+# Data: keep folders, ignore contents
+data/raw/*
+!data/raw/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+*.mat
+*.npy
+*.npz
+*.csv
+
+# Results: keep folders, ignore contents
+results/figures/*
+!results/figures/.gitkeep
+
+results/tables/*
+!results/tables/.gitkeep
+
+*.pt
+*.pth
+*.ckpt
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
