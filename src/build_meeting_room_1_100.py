@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.io import loadmat
-
+import re
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +28,7 @@ def extract_csi_matrix(mat_content: dict, file_name: str) -> tuple[np.ndarray, s
     Extract the CSI matrix from a MATLAB .mat file.
     Ignore MATLAB system keys
     and search for a numeric array with the expected CSI shape.
+
     """
 
     candidate_matrices = {}
@@ -61,6 +62,39 @@ def extract_csi_matrix(mat_content: dict, file_name: str) -> tuple[np.ndarray, s
     return selected_matrix, selected_key
 
 
+def natural_sort_key(path: Path) -> list:
+    """
+    Create a natural sorting key for file names containing numbers.
+    """
+
+    parts = re.split(r"(\d+)", path.name)
+
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in parts
+    ]
+
+def parse_grid_position(file_name: str) -> tuple[int, int]:
+    """
+    Extract the grid position from a CSI file name.
+
+    Example:
+    coordinate101.mat  -> (1, 1)
+    coordinate111.mat  -> (1, 11)
+    coordinate1001.mat -> (10, 1)
+    """
+
+    stem = Path(file_name).stem
+    coordinate_id = stem.replace("coordinate", "")
+
+    if len(coordinate_id) < 3:
+        raise ValueError(f"Invalid coordinate format: {file_name}")
+
+    row_index = int(coordinate_id[:-2])
+    column_index = int(coordinate_id[-2:])
+
+    return row_index, column_index
+
 def main() -> None:
     print("DATASET DIRECTORY")
     print(DATASET_DIR)
@@ -68,7 +102,7 @@ def main() -> None:
     if not DATASET_DIR.exists():
         raise FileNotFoundError(f"Dataset directory not found: {DATASET_DIR}")
 
-    mat_files = sorted(DATASET_DIR.glob("*.mat"))
+    mat_files = sorted(DATASET_DIR.glob("*.mat"), key=natural_sort_key)
 
     if len(mat_files) == 0:
         raise FileNotFoundError(f"No .mat files found in: {DATASET_DIR}")
@@ -81,6 +115,7 @@ def main() -> None:
     labels = []
     file_names = []
     selected_keys = []
+    grid_positions = []
 
     for class_index, mat_path in enumerate(mat_files):
         mat_content = loadmat(mat_path)
@@ -105,6 +140,8 @@ def main() -> None:
         labels.append(class_index)
         file_names.append(mat_path.name)
         selected_keys.append(selected_key)
+        grid_position = parse_grid_position(mat_path.name)
+        grid_positions.append(grid_position)
 
         print(
             f"[{class_index:03d}] {mat_path.name} "
@@ -115,6 +152,7 @@ def main() -> None:
     y_labels = np.array(labels, dtype=np.int64)
     file_names = np.array(file_names)
     selected_keys = np.array(selected_keys)
+    grid_positions = np.array(grid_positions, dtype=np.int64)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -124,6 +162,7 @@ def main() -> None:
         y_labels=y_labels,
         file_names=file_names,
         selected_keys=selected_keys,
+        grid_positions=grid_positions,
     )
 
     print()
