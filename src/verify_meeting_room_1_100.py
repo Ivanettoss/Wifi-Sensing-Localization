@@ -46,7 +46,7 @@ def main() -> None:
     print(available_keys)
     print()
 
-    required_keys = ["x_data", "y_labels", "file_names", "selected_keys"]
+    required_keys = ["x_data", "y_labels", "file_names", "selected_keys", "grid_positions"]
 
     for key in required_keys:
         check_condition(
@@ -58,12 +58,14 @@ def main() -> None:
     y_labels = dataset["y_labels"]
     file_names = dataset["file_names"]
     selected_keys = dataset["selected_keys"]
+    grid_positions = dataset["grid_positions"]
 
     print("BASIC SHAPES")
     print(f"x_data shape: {x_data.shape}")
     print(f"y_labels shape: {y_labels.shape}")
     print(f"file_names shape: {file_names.shape}")
     print(f"selected_keys shape: {selected_keys.shape}")
+    print(f"grid_positions shape: {grid_positions.shape}")
     print()
 
     check_condition(
@@ -86,6 +88,11 @@ def main() -> None:
         f"Invalid number of selected keys: {len(selected_keys)}",
     )
 
+    check_condition(
+    grid_positions.shape == (100, 2),
+    f"Invalid grid_positions shape: {grid_positions.shape}, expected (100, 2)",
+)
+    
     print("DATA TYPES")
     print(f"x_data dtype: {x_data.dtype}")
     print(f"y_labels dtype: {y_labels.dtype}")
@@ -152,6 +159,20 @@ def main() -> None:
     print("FILE NAME CHECK")
     print(f"first file: {file_names[0]}")
     print(f"last file: {file_names[-1]}")
+    print("GRID POSITION CHECK")
+    print(f"first grid position: {grid_positions[0]}")
+    print(f"last grid position: {grid_positions[-1]}")
+    print()
+
+    check_condition(
+        np.array_equal(grid_positions[0], np.array([1, 1])),
+        f"Invalid first grid position: {grid_positions[0]}, expected [1, 1]",
+    )
+
+    check_condition(
+        np.array_equal(grid_positions[-1], np.array([10, 1])),
+        f"Invalid last grid position: {grid_positions[-1]}, expected [10, 1]",
+    )
     print()
 
     print("SELECTED MATLAB KEYS")
