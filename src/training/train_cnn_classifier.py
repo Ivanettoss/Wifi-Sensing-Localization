@@ -1,6 +1,3 @@
-#Baseline MLP classifier training script
-
-
 import copy
 import json
 import random
@@ -20,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
 
-from models.mlp import MLPClassifier, count_trainable_parameters
+from models.cnn import CNN2DClassifier, count_trainable_parameters
 
 
 DATASET_FILE = (
@@ -34,8 +31,8 @@ OUTPUT_MODELS_DIR = PROJECT_ROOT / "outputs" / "models"
 OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
 OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
-BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "mlp_meeting_room_full_best.pt"
-METRICS_FILE = OUTPUT_LOGS_DIR / "mlp_meeting_room_full_metrics.json"
+BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "cnn_meeting_room_full_best.pt"
+METRICS_FILE = OUTPUT_LOGS_DIR / "cnn_meeting_room_full_metrics.json"
 
 SPLIT_FILE = (
     OUTPUT_SPLITS_DIR
@@ -218,19 +215,6 @@ def build_split_indices(
         val_indices=val_indices,
         test_indices=test_indices,
         random_seed=np.array(RANDOM_SEED, dtype=np.int64),
-        windows_per_class=np.array(WINDOWS_PER_CLASS, dtype=np.int64),
-        train_windows_per_class=np.array(
-            TRAIN_WINDOWS_PER_CLASS,
-            dtype=np.int64,
-        ),
-        val_windows_per_class=np.array(
-            VAL_WINDOWS_PER_CLASS,
-            dtype=np.int64,
-        ),
-        test_windows_per_class=np.array(
-            TEST_WINDOWS_PER_CLASS,
-            dtype=np.int64,
-        ),
     )
 
     print(f"Created new split and saved to: {split_file}")
@@ -270,7 +254,9 @@ def train_one_epoch(
         batch_size = y_batch.size(0)
 
         total_loss += loss.item() * batch_size
-        total_correct += (torch.argmax(logits, dim=1) == y_batch).sum().item()
+        total_correct += (
+            torch.argmax(logits, dim=1) == y_batch
+        ).sum().item()
         total_samples += batch_size
 
     epoch_loss = total_loss / total_samples
@@ -389,7 +375,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print("MLP CLASSIFIER TRAINING")
+    print("CNN CLASSIFIER TRAINING")
     print(f"device: {device}")
     print(f"dataset file: {DATASET_FILE}")
     print()
@@ -479,12 +465,10 @@ def main() -> None:
         shuffle=False,
     )
 
-    input_dim = x_windows.shape[1] * x_windows.shape[2] * x_windows.shape[3]
+    input_channels = x_windows.shape[1]
 
-    model = MLPClassifier(
-        input_dim=input_dim,
-        hidden_dim_1=512,
-        hidden_dim_2=256,
+    model = CNN2DClassifier(
+        input_channels=input_channels,
         num_classes=num_classes,
         dropout_rate=DROPOUT_RATE,
     ).to(device)
@@ -586,7 +570,7 @@ def main() -> None:
             torch.save(
                 {
                     "model_state_dict": best_model_state_dict,
-                    "input_dim": input_dim,
+                    "input_channels": input_channels,
                     "num_classes": num_classes,
                     "train_mean": train_mean,
                     "train_std": train_std,
