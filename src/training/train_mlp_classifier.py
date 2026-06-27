@@ -1,6 +1,8 @@
+import copy
 import json
 import random
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -22,26 +24,35 @@ DATASET_FILE = (
     PROJECT_ROOT
     / "data"
     / "processed"
-    / "meeting_room_1_100_windows_30.npz"
+    / "meeting_room_full_windows_30.npz"
 )
 
 OUTPUT_MODELS_DIR = PROJECT_ROOT / "outputs" / "models"
 OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
+OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
-BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "mlp_classifier_best.pt"
-METRICS_FILE = OUTPUT_LOGS_DIR / "mlp_classifier_metrics.json"
+BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "mlp_meeting_room_full_best.pt"
+METRICS_FILE = OUTPUT_LOGS_DIR / "mlp_meeting_room_full_metrics.json"
+
+SPLIT_FILE = (
+    OUTPUT_SPLITS_DIR
+    / "meeting_room_full_train_val_test_split_seed42.npz"
+)
 
 RANDOM_SEED = 42
 
-NUM_CLASSES = 100
 WINDOWS_PER_CLASS = 50
-TRAIN_WINDOWS_PER_CLASS = 40
+TRAIN_WINDOWS_PER_CLASS = 35
+VAL_WINDOWS_PER_CLASS = 5
 TEST_WINDOWS_PER_CLASS = 10
 
 BATCH_SIZE = 64
-NUM_EPOCHS = 30
+MAX_EPOCHS = 50
 LEARNING_RATE = 1e-3
 DROPOUT_RATE = 0.3
+
+EARLY_STOPPING_PATIENCE = 7
+MIN_DELTA = 1e-6
 
 
 class CSIWindowDataset(Dataset):
@@ -100,19 +111,77 @@ def set_random_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def build_split_indices(y_labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def validate_labels(
+    y_labels: np.ndarray,
+    num_classes: int,
+) -> None:
     """
-    Build a balanced train/test split.
+    Check that labels are consecutive integers from 0 to num_classes - 1.
+    """
 
-    For each class:
-        40 windows are used for training
-        10 windows are used for testing
+    unique_labels = np.unique(y_labels)
+    expected_labels = np.arange(num_classes)
+
+    if not np.array_equal(unique_labels, expected_labels):
+        raise ValueError(
+            "Labels are not consecutive integers from 0 to num_classes - 1"
+        )
+
+
+def build_split_indices(
+    y_labels: np.ndarray,
+    split_file: Path,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
+    Build or load a balanced train/validation/test split.
+
+    The split is saved to disk so that MLP, CNN and LoT-lite can use exactly
+    the same train, validation and test samples.
+    """
+
+    if split_file.exists():
+        split_data = np.load(split_file)
+
+        required_keys = {
+            "train_indices",
+            "val_indices",
+            "test_indices",
+        }
+
+        if not required_keys.issubset(set(split_data.files)):
+            raise ValueError(
+                f"Invalid split file: {split_file}. "
+                "Delete it and run the script again."
+            )
+
+        train_indices = split_data["train_indices"]
+        val_indices = split_data["val_indices"]
+        test_indices = split_data["test_indices"]
+
+        print(f"Loaded existing split from: {split_file}")
+
+        return train_indices, val_indices, test_indices
+
+    expected_total = (
+        TRAIN_WINDOWS_PER_CLASS
+        + VAL_WINDOWS_PER_CLASS
+        + TEST_WINDOWS_PER_CLASS
+    )
+
+    if expected_total != WINDOWS_PER_CLASS:
+        raise ValueError(
+            f"Invalid split configuration: "
+            f"{TRAIN_WINDOWS_PER_CLASS} + {VAL_WINDOWS_PER_CLASS} + "
+            f"{TEST_WINDOWS_PER_CLASS} != {WINDOWS_PER_CLASS}"
+        )
 
     train_indices = []
+    val_indices = []
     test_indices = []
 
-    for class_id in range(NUM_CLASSES):
+    unique_labels = np.unique(y_labels)
+
+    for class_id in unique_labels:
         class_indices = np.where(y_labels == class_id)[0]
 
         if len(class_indices) != WINDOWS_PER_CLASS:
@@ -123,16 +192,47 @@ def build_split_indices(y_labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
         np.random.shuffle(class_indices)
 
-        train_indices.extend(class_indices[:TRAIN_WINDOWS_PER_CLASS])
-        test_indices.extend(class_indices[TRAIN_WINDOWS_PER_CLASS:])
+        train_end = TRAIN_WINDOWS_PER_CLASS
+        val_end = TRAIN_WINDOWS_PER_CLASS + VAL_WINDOWS_PER_CLASS
+
+        train_indices.extend(class_indices[:train_end])
+        val_indices.extend(class_indices[train_end:val_end])
+        test_indices.extend(class_indices[val_end:])
 
     train_indices = np.array(train_indices, dtype=np.int64)
+    val_indices = np.array(val_indices, dtype=np.int64)
     test_indices = np.array(test_indices, dtype=np.int64)
 
     np.random.shuffle(train_indices)
+    np.random.shuffle(val_indices)
     np.random.shuffle(test_indices)
 
-    return train_indices, test_indices
+    split_file.parent.mkdir(parents=True, exist_ok=True)
+
+    np.savez_compressed(
+        split_file,
+        train_indices=train_indices,
+        val_indices=val_indices,
+        test_indices=test_indices,
+        random_seed=np.array(RANDOM_SEED, dtype=np.int64),
+        windows_per_class=np.array(WINDOWS_PER_CLASS, dtype=np.int64),
+        train_windows_per_class=np.array(
+            TRAIN_WINDOWS_PER_CLASS,
+            dtype=np.int64,
+        ),
+        val_windows_per_class=np.array(
+            VAL_WINDOWS_PER_CLASS,
+            dtype=np.int64,
+        ),
+        test_windows_per_class=np.array(
+            TEST_WINDOWS_PER_CLASS,
+            dtype=np.int64,
+        ),
+    )
+
+    print(f"Created new split and saved to: {split_file}")
+
+    return train_indices, val_indices, test_indices
 
 
 def train_one_epoch(
@@ -236,7 +336,9 @@ def evaluate(
             batch_size = y_batch.size(0)
 
             total_loss += loss.item() * batch_size
-            total_correct += (torch.argmax(logits, dim=1) == y_batch).sum().item()
+            total_correct += (
+                torch.argmax(logits, dim=1) == y_batch
+            ).sum().item()
             total_samples += batch_size
 
             all_logits.append(logits.cpu())
@@ -260,14 +362,15 @@ def evaluate(
 def build_class_grid_positions(
     y_labels: np.ndarray,
     grid_positions: np.ndarray,
+    num_classes: int,
 ) -> np.ndarray:
     """
     Build the mapping from class id to grid position.
     """
 
-    class_grid_positions = np.zeros((NUM_CLASSES, 2), dtype=np.int64)
+    class_grid_positions = np.zeros((num_classes, 2), dtype=np.int64)
 
-    for class_id in range(NUM_CLASSES):
+    for class_id in range(num_classes):
         class_positions = grid_positions[y_labels == class_id]
 
         if len(class_positions) == 0:
@@ -297,20 +400,33 @@ def main() -> None:
     y_labels = dataset["y_labels"]
     grid_positions = dataset["grid_positions"]
 
+    num_classes = int(len(np.unique(y_labels)))
+
+    validate_labels(
+        y_labels=y_labels,
+        num_classes=num_classes,
+    )
+
     print("DATASET")
     print(f"x_windows shape: {x_windows.shape}")
     print(f"y_labels shape: {y_labels.shape}")
     print(f"grid_positions shape: {grid_positions.shape}")
+    print(f"num_classes: {num_classes}")
     print()
 
-    train_indices, test_indices = build_split_indices(y_labels)
+    train_indices, val_indices, test_indices = build_split_indices(
+        y_labels=y_labels,
+        split_file=SPLIT_FILE,
+    )
 
     train_mean = float(x_windows[train_indices].mean())
     train_std = float(x_windows[train_indices].std())
 
     print("SPLIT")
     print(f"train samples: {len(train_indices)}")
+    print(f"validation samples: {len(val_indices)}")
     print(f"test samples: {len(test_indices)}")
+    print(f"split file: {SPLIT_FILE}")
     print(f"train mean: {train_mean:.6f}")
     print(f"train std: {train_std:.6f}")
     print()
@@ -320,6 +436,15 @@ def main() -> None:
         y_labels=y_labels,
         grid_positions=grid_positions,
         indices=train_indices,
+        mean_value=train_mean,
+        std_value=train_std,
+    )
+
+    val_dataset = CSIWindowDataset(
+        x_windows=x_windows,
+        y_labels=y_labels,
+        grid_positions=grid_positions,
+        indices=val_indices,
         mean_value=train_mean,
         std_value=train_std,
     )
@@ -339,6 +464,12 @@ def main() -> None:
         shuffle=True,
     )
 
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+    )
+
     test_loader = DataLoader(
         test_dataset,
         batch_size=BATCH_SIZE,
@@ -351,7 +482,7 @@ def main() -> None:
         input_dim=input_dim,
         hidden_dim_1=512,
         hidden_dim_2=256,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
         dropout_rate=DROPOUT_RATE,
     ).to(device)
 
@@ -365,6 +496,7 @@ def main() -> None:
     class_grid_positions_np = build_class_grid_positions(
         y_labels=y_labels,
         grid_positions=grid_positions,
+        num_classes=num_classes,
     )
 
     class_grid_positions = torch.tensor(
@@ -381,10 +513,22 @@ def main() -> None:
     OUTPUT_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    best_test_accuracy = -1.0
+    best_val_loss = float("inf")
+    best_epoch = -1
+    best_model_state_dict = None
+
+    best_val_accuracy = None
+    best_val_mean_grid_error = None
+    best_val_rmse_grid_error = None
+
+    epochs_without_improvement = 0
+    early_stopped = False
+
     history = []
 
-    for epoch in range(1, NUM_EPOCHS + 1):
+    training_start_time = time.perf_counter()
+
+    for epoch in range(1, MAX_EPOCHS + 1):
         train_loss, train_accuracy = train_one_epoch(
             model=model,
             data_loader=train_loader,
@@ -393,9 +537,9 @@ def main() -> None:
             device=device,
         )
 
-        test_loss, test_accuracy, mean_grid_error, rmse_grid_error = evaluate(
+        val_loss, val_accuracy, val_mean_grid_error, val_rmse_grid_error = evaluate(
             model=model,
-            data_loader=test_loader,
+            data_loader=val_loader,
             criterion=criterion,
             class_grid_positions=class_grid_positions,
             device=device,
@@ -405,52 +549,120 @@ def main() -> None:
             "epoch": epoch,
             "train_loss": train_loss,
             "train_accuracy": train_accuracy,
-            "test_loss": test_loss,
-            "test_accuracy": test_accuracy,
-            "mean_grid_error": mean_grid_error,
-            "rmse_grid_error": rmse_grid_error,
+            "val_loss": val_loss,
+            "val_accuracy": val_accuracy,
+            "val_mean_grid_error": val_mean_grid_error,
+            "val_rmse_grid_error": val_rmse_grid_error,
         }
 
         history.append(epoch_metrics)
 
         print(
-            f"Epoch {epoch:03d}/{NUM_EPOCHS} | "
+            f"Epoch {epoch:03d}/{MAX_EPOCHS} | "
             f"train loss: {train_loss:.4f} | "
             f"train acc: {train_accuracy:.4f} | "
-            f"test loss: {test_loss:.4f} | "
-            f"test acc: {test_accuracy:.4f} | "
-            f"mean grid error: {mean_grid_error:.4f} | "
-            f"rmse grid error: {rmse_grid_error:.4f}"
+            f"val loss: {val_loss:.4f} | "
+            f"val acc: {val_accuracy:.4f} | "
+            f"val mean grid error: {val_mean_grid_error:.4f} | "
+            f"val rmse grid error: {val_rmse_grid_error:.4f}"
         )
 
-        if test_accuracy > best_test_accuracy:
-            best_test_accuracy = test_accuracy
+        improved = val_loss < (best_val_loss - MIN_DELTA)
+
+        if improved:
+            best_val_loss = val_loss
+            best_epoch = epoch
+            best_model_state_dict = copy.deepcopy(model.state_dict())
+
+            best_val_accuracy = val_accuracy
+            best_val_mean_grid_error = val_mean_grid_error
+            best_val_rmse_grid_error = val_rmse_grid_error
+
+            epochs_without_improvement = 0
 
             torch.save(
                 {
-                    "model_state_dict": model.state_dict(),
+                    "model_state_dict": best_model_state_dict,
                     "input_dim": input_dim,
-                    "num_classes": NUM_CLASSES,
+                    "num_classes": num_classes,
                     "train_mean": train_mean,
                     "train_std": train_std,
                     "class_grid_positions": class_grid_positions_np,
-                    "best_test_accuracy": best_test_accuracy,
+                    "best_epoch": best_epoch,
+                    "best_val_loss": best_val_loss,
+                    "best_val_accuracy": best_val_accuracy,
+                    "best_val_mean_grid_error": best_val_mean_grid_error,
+                    "best_val_rmse_grid_error": best_val_rmse_grid_error,
+                    "split_file": str(SPLIT_FILE),
+                    "dataset_file": str(DATASET_FILE),
                 },
                 BEST_MODEL_FILE,
             )
+        else:
+            epochs_without_improvement += 1
+
+        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
+            early_stopped = True
+            print()
+            print(
+                "Early stopping triggered: "
+                f"validation loss did not improve for "
+                f"{EARLY_STOPPING_PATIENCE} consecutive epochs."
+            )
+            break
+
+    training_time_seconds = time.perf_counter() - training_start_time
+
+    if best_model_state_dict is None:
+        raise RuntimeError("No best model was saved during training.")
+
+    model.load_state_dict(best_model_state_dict)
+
+    test_start_time = time.perf_counter()
+
+    test_loss, test_accuracy, test_mean_grid_error, test_rmse_grid_error = evaluate(
+        model=model,
+        data_loader=test_loader,
+        criterion=criterion,
+        class_grid_positions=class_grid_positions,
+        device=device,
+    )
+
+    test_time_seconds = time.perf_counter() - test_start_time
 
     metrics_output = {
         "dataset_file": str(DATASET_FILE),
         "best_model_file": str(BEST_MODEL_FILE),
-        "num_epochs": NUM_EPOCHS,
+        "split_file": str(SPLIT_FILE),
+        "num_classes": num_classes,
+        "max_epochs": MAX_EPOCHS,
+        "epochs_ran": len(history),
+        "early_stopped": early_stopped,
+        "early_stopping_patience": EARLY_STOPPING_PATIENCE,
+        "min_delta": MIN_DELTA,
         "batch_size": BATCH_SIZE,
         "learning_rate": LEARNING_RATE,
         "dropout_rate": DROPOUT_RATE,
         "train_samples": int(len(train_indices)),
+        "val_samples": int(len(val_indices)),
         "test_samples": int(len(test_indices)),
+        "train_windows_per_class": TRAIN_WINDOWS_PER_CLASS,
+        "val_windows_per_class": VAL_WINDOWS_PER_CLASS,
+        "test_windows_per_class": TEST_WINDOWS_PER_CLASS,
         "train_mean": train_mean,
         "train_std": train_std,
-        "best_test_accuracy": best_test_accuracy,
+        "trainable_parameters": count_trainable_parameters(model),
+        "best_epoch": best_epoch,
+        "best_val_loss": best_val_loss,
+        "best_val_accuracy": best_val_accuracy,
+        "best_val_mean_grid_error": best_val_mean_grid_error,
+        "best_val_rmse_grid_error": best_val_rmse_grid_error,
+        "test_loss": test_loss,
+        "test_accuracy": test_accuracy,
+        "test_mean_grid_error": test_mean_grid_error,
+        "test_rmse_grid_error": test_rmse_grid_error,
+        "training_time_seconds": training_time_seconds,
+        "test_time_seconds": test_time_seconds,
         "history": history,
     }
 
@@ -459,7 +671,17 @@ def main() -> None:
 
     print()
     print("TRAINING COMPLETED")
-    print(f"best test accuracy: {best_test_accuracy:.4f}")
+    print(f"epochs ran: {len(history)}")
+    print(f"early stopped: {early_stopped}")
+    print(f"best epoch: {best_epoch}")
+    print(f"best validation loss: {best_val_loss:.4f}")
+    print(f"best validation accuracy: {best_val_accuracy:.4f}")
+    print(f"test loss: {test_loss:.4f}")
+    print(f"test accuracy: {test_accuracy:.4f}")
+    print(f"test mean grid error: {test_mean_grid_error:.4f}")
+    print(f"test rmse grid error: {test_rmse_grid_error:.4f}")
+    print(f"training time seconds: {training_time_seconds:.2f}")
+    print(f"test time seconds: {test_time_seconds:.2f}")
     print(f"best model saved to: {BEST_MODEL_FILE}")
     print(f"metrics saved to: {METRICS_FILE}")
 
