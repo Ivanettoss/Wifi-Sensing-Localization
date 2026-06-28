@@ -57,3 +57,60 @@ class CSIPatchEmbedding(nn.Module):
         # [batch_size, num_patches, embed_dim] ready for transformer input
 
         return x
+
+class LLT(nn.Module):
+
+    def __init__(
+        self,
+        in_channels: int = 3,
+        image_size: tuple[int, int] = (30, 30),
+        patch_size: tuple[int, int] = (5, 5),
+        embed_dim: int = 32,
+        dropout: float = 0.1,
+        num_classes: int = 176, #reference points 
+    ) -> None:
+        super().__init__()
+
+        # use the prev. defined CSIPatchEmbedding to get patch tokens 
+        self.patch_embedding = CSIPatchEmbedding(
+            in_channels=in_channels,
+            image_size=image_size,
+            patch_size=patch_size,
+            embed_dim=embed_dim,
+        )
+
+        num_patches = self.patch_embedding.num_patches
+
+        #build a trainable parameter: class token
+        self.class_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+
+        #build a trainable parameter: position embedding
+        self.position_embedding = nn.Parameter(
+            torch.zeros(1, num_patches + 1, embed_dim)
+        )
+
+        self.position_dropout = nn.Dropout(dropout)
+
+        self.num_classes = num_classes
+        self.embed_dim = embed_dim
+        self.num_patches = num_patches
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        # call csipatchembedding to get patch tokens
+        tokens = self.patch_embedding(x)
+
+        batch_size = tokens.shape[0]
+
+        #[1,1,32]→[batch_size,1,32]
+        class_tokens = self.class_token.expand(batch_size, -1, -1)
+
+        #concat on token dimension (dim=1) to get  num_patches+1
+        tokens = torch.cat((class_tokens, tokens), dim=1)
+
+        # we sum tokens + position_embedding 
+        tokens = tokens + self.position_embedding
+
+        tokens = self.position_dropout(tokens)
+
+        return tokens
