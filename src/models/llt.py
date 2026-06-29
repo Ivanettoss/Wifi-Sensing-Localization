@@ -74,26 +74,10 @@ class LLT(nn.Module):
     ) -> None:
         super().__init__()
 
-        def _initialize_weights(self) -> None:
-            nn.init.trunc_normal_(self.class_token, std=0.02)
-            nn.init.trunc_normal_(self.position_embedding, std=0.02)
-
-            for module in self.modules():
-                if isinstance(module, nn.Linear):
-                    nn.init.trunc_normal_(module.weight, std=0.02)
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
-
-                if isinstance(module, nn.Conv2d):
-                    nn.init.kaiming_normal_(module.weight, mode="fan_out")
-                    if module.bias is not None:
-                        nn.init.zeros_(module.bias)
-
-                if embed_dim % num_heads != 0:
-                        raise ValueError(
+        if embed_dim % num_heads != 0:
+             raise ValueError(
                 f"embed_dim={embed_dim} must be divisible by num_heads={num_heads}"
-                        )
-            
+                        )    
         # use the prev. defined CSIPatchEmbedding to get patch tokens 
         self.patch_embedding = CSIPatchEmbedding(
             in_channels=in_channels,
@@ -139,6 +123,21 @@ class LLT(nn.Module):
         self.num_classes = num_classes
         self.embed_dim = embed_dim
         self.num_patches = num_patches
+
+    def _initialize_weights(self) -> None:
+            nn.init.trunc_normal_(self.class_token, std=0.02)
+            nn.init.trunc_normal_(self.position_embedding, std=0.02)
+
+            for module in self.modules():
+                if isinstance(module, nn.Linear):
+                    nn.init.trunc_normal_(module.weight, std=0.02)
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+
+                if isinstance(module, nn.Conv2d):
+                    nn.init.kaiming_normal_(module.weight, mode="fan_out")
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
