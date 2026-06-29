@@ -67,10 +67,33 @@ class LLT(nn.Module):
         patch_size: tuple[int, int] = (5, 5),
         embed_dim: int = 32,
         dropout: float = 0.1,
+        depth: int = 2, #encoder layers 
+        num_heads: int = 4, #attention heads
+        mlp_ratio: float = 2.0,
         num_classes: int = 176, #reference points 
     ) -> None:
         super().__init__()
 
+        def _initialize_weights(self) -> None:
+            nn.init.trunc_normal_(self.class_token, std=0.02)
+            nn.init.trunc_normal_(self.position_embedding, std=0.02)
+
+            for module in self.modules():
+                if isinstance(module, nn.Linear):
+                    nn.init.trunc_normal_(module.weight, std=0.02)
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+
+                if isinstance(module, nn.Conv2d):
+                    nn.init.kaiming_normal_(module.weight, mode="fan_out")
+                    if module.bias is not None:
+                        nn.init.zeros_(module.bias)
+
+                if embed_dim % num_heads != 0:
+                        raise ValueError(
+                f"embed_dim={embed_dim} must be divisible by num_heads={num_heads}"
+                        )
+            
         # use the prev. defined CSIPatchEmbedding to get patch tokens 
         self.patch_embedding = CSIPatchEmbedding(
             in_channels=in_channels,
@@ -90,6 +113,28 @@ class LLT(nn.Module):
         )
 
         self.position_dropout = nn.Dropout(dropout)
+        hidden_dim = int(embed_dim * mlp_ratio)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim, 
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+
+        self.encoder = nn.TransformerEncoder(
+                encoder_layer=encoder_layer,
+                num_layers=depth,
+            )
+        
+        self.norm = nn.LayerNorm(embed_dim)
+        #from vector of embed_dim to vector of num_classes (logits)
+        self.classifier = nn.Linear(embed_dim, num_classes)
+        
+        self._initialize_weights()
 
         self.num_classes = num_classes
         self.embed_dim = embed_dim
@@ -112,5 +157,18 @@ class LLT(nn.Module):
         tokens = tokens + self.position_embedding
 
         tokens = self.position_dropout(tokens)
+        
+        encoded_tokens = self.encoder(tokens)
+        encoded_tokens = self.norm(encoded_tokens)
 
-        return tokens
+        cls_features = encoded_tokens[:, 0]
+
+        logits = self.classifier(cls_features)
+        return logits
+
+def count_trainable_parameters(model: nn.Module) -> int:
+    return sum(
+        parameter.numel()
+        for parameter in model.parameters()
+        if parameter.requires_grad
+    )
