@@ -34,7 +34,7 @@ DATASET_PATH = PROJECT_ROOT / "data" / "processed" / "meeting_room_full_windows_
 SPLIT_PATH = PROJECT_ROOT / "outputs" / "splits" / "meeting_room_full_train_val_test_split_seed42.npz"
 
 CHECKPOINT_DIR = PROJECT_ROOT / "outputs" / "checkpoints"
-CHECKPOINT_PATH = CHECKPOINT_DIR / "llt_classifier_best.pt"
+CHECKPOINT_PATH = CHECKPOINT_DIR / "llt_classifier_best_2h.pt"
 
 BATCH_SIZE = 64
 EPOCHS = 40
@@ -49,7 +49,7 @@ NUM_CLASSES = 176
 PATCH_SIZE = (5, 5)
 EMBED_DIM = 32
 DEPTH = 2
-NUM_HEADS = 4
+NUM_HEADS = 2
 MLP_RATIO = 2.0
 DROPOUT = 0.1
 
