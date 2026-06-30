@@ -3,6 +3,7 @@ import json
 import random
 import sys
 import time
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,11 @@ OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
 BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "cnn_meeting_room_full_best.pt"
 METRICS_FILE = OUTPUT_LOGS_DIR / "cnn_meeting_room_full_metrics.json"
+
+SUMMARY_CSV_FILE = (
+    OUTPUT_LOGS_DIR
+    / "fingerprint_classification_full_random_results.csv"
+)
 
 SPLIT_FILE = (
     OUTPUT_SPLITS_DIR
@@ -269,7 +275,7 @@ def compute_grid_error(
     logits: torch.Tensor,
     labels: torch.Tensor,
     class_grid_positions: torch.Tensor,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     """
     Compute mean and RMSE grid localization error.
 
@@ -289,9 +295,10 @@ def compute_grid_error(
     )
 
     mean_error = errors.mean().item()
+    median_error = torch.quantile(errors, 0.5).item()
     rmse_error = torch.sqrt(torch.mean(errors ** 2)).item()
 
-    return mean_error, rmse_error
+    return mean_error, median_error, rmse_error
 
 
 def evaluate(
@@ -300,7 +307,7 @@ def evaluate(
     criterion: nn.Module,
     class_grid_positions: torch.Tensor,
     device: torch.device,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     """
     Evaluate the model.
     """
@@ -339,13 +346,13 @@ def evaluate(
     all_logits = torch.cat(all_logits, dim=0)
     all_labels = torch.cat(all_labels, dim=0)
 
-    mean_grid_error, rmse_grid_error = compute_grid_error(
+    mean_grid_error, median_grid_error, rmse_grid_error = compute_grid_error(
         logits=all_logits,
         labels=all_labels,
         class_grid_positions=class_grid_positions.cpu(),
     )
 
-    return epoch_loss, epoch_accuracy, mean_grid_error, rmse_grid_error
+    return epoch_loss, epoch_accuracy, mean_grid_error, median_grid_error, rmse_grid_error
 
 
 def build_class_grid_positions(
@@ -368,8 +375,70 @@ def build_class_grid_positions(
         class_grid_positions[class_id] = class_positions[0]
 
     return class_grid_positions
+def update_summary_csv(
+    summary_row: dict,
+    summary_csv_file: Path,
+) -> None:
+    """
+    Save or update the final model row in the summary CSV.
 
+    If the same model already exists, its row is replaced.
+    """
 
+    fieldnames = [
+        "model",
+        "dataset",
+        "experiment",
+        "split_file",
+        "best_model_file",
+        "num_classes",
+        "train_samples",
+        "val_samples",
+        "test_samples",
+        "accuracy",
+        "mean_grid_error",
+        "median_grid_error",
+        "rmse_grid_error",
+        "trainable_parameters",
+        "best_epoch",
+        "epochs_ran",
+        "early_stopped",
+        "training_time_seconds",
+        "test_time_seconds",
+    ]
+
+    rows = []
+
+    if summary_csv_file.exists():
+        with open(
+            summary_csv_file,
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as input_file:
+            reader = csv.DictReader(input_file)
+
+            for row in reader:
+                if row.get("model") != summary_row["model"]:
+                    rows.append(row)
+
+    rows.append(summary_row)
+
+    with open(
+        summary_csv_file,
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as output_file:
+        writer = csv.DictWriter(
+            output_file,
+            fieldnames=fieldnames,
+        )
+
+        writer.writeheader()
+        writer.writerows(rows)
+
+#Main 
 def main() -> None:
     set_random_seed(RANDOM_SEED)
 
@@ -506,6 +575,7 @@ def main() -> None:
 
     best_val_accuracy = None
     best_val_mean_grid_error = None
+    best_val_median_grid_error = None
     best_val_rmse_grid_error = None
 
     epochs_without_improvement = 0
@@ -524,7 +594,7 @@ def main() -> None:
             device=device,
         )
 
-        val_loss, val_accuracy, val_mean_grid_error, val_rmse_grid_error = evaluate(
+        val_loss, val_accuracy, val_mean_grid_error, val_median_grid_error, val_rmse_grid_error = evaluate(
             model=model,
             data_loader=val_loader,
             criterion=criterion,
@@ -539,6 +609,7 @@ def main() -> None:
             "val_loss": val_loss,
             "val_accuracy": val_accuracy,
             "val_mean_grid_error": val_mean_grid_error,
+            "val_median_grid_error": val_median_grid_error,
             "val_rmse_grid_error": val_rmse_grid_error,
         }
 
@@ -551,6 +622,7 @@ def main() -> None:
             f"val loss: {val_loss:.4f} | "
             f"val acc: {val_accuracy:.4f} | "
             f"val mean grid error: {val_mean_grid_error:.4f} | "
+            f"val median grid error: {val_median_grid_error:.4f} | "
             f"val rmse grid error: {val_rmse_grid_error:.4f}"
         )
 
@@ -563,6 +635,7 @@ def main() -> None:
 
             best_val_accuracy = val_accuracy
             best_val_mean_grid_error = val_mean_grid_error
+            best_val_median_grid_error = val_median_grid_error
             best_val_rmse_grid_error = val_rmse_grid_error
 
             epochs_without_improvement = 0
@@ -579,6 +652,7 @@ def main() -> None:
                     "best_val_loss": best_val_loss,
                     "best_val_accuracy": best_val_accuracy,
                     "best_val_mean_grid_error": best_val_mean_grid_error,
+                    "best_val_median_grid_error": best_val_median_grid_error,
                     "best_val_rmse_grid_error": best_val_rmse_grid_error,
                     "split_file": str(SPLIT_FILE),
                     "dataset_file": str(DATASET_FILE),
@@ -607,7 +681,7 @@ def main() -> None:
 
     test_start_time = time.perf_counter()
 
-    test_loss, test_accuracy, test_mean_grid_error, test_rmse_grid_error = evaluate(
+    test_loss, test_accuracy, test_mean_grid_error, test_median_grid_error, test_rmse_grid_error = evaluate(
         model=model,
         data_loader=test_loader,
         criterion=criterion,
@@ -618,6 +692,8 @@ def main() -> None:
     test_time_seconds = time.perf_counter() - test_start_time
 
     metrics_output = {
+        "model_name": "CNN",
+        "experiment": "full_random_seed42",
         "dataset_file": str(DATASET_FILE),
         "best_model_file": str(BEST_MODEL_FILE),
         "split_file": str(SPLIT_FILE),
@@ -643,6 +719,7 @@ def main() -> None:
         "best_val_loss": best_val_loss,
         "best_val_accuracy": best_val_accuracy,
         "best_val_mean_grid_error": best_val_mean_grid_error,
+        "best_val_median_grid_error": best_val_median_grid_error,
         "best_val_rmse_grid_error": best_val_rmse_grid_error,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
@@ -655,7 +732,32 @@ def main() -> None:
 
     with open(METRICS_FILE, "w", encoding="utf-8") as output_file:
         json.dump(metrics_output, output_file, indent=4)
+    summary_row = {
+    "model": "CNN",
+    "dataset": "meeting_room_full_windows_30",
+    "experiment": "full_random_seed42",
+    "split_file": str(SPLIT_FILE),
+    "best_model_file": str(BEST_MODEL_FILE),
+    "num_classes": num_classes,
+    "train_samples": int(len(train_indices)),
+    "val_samples": int(len(val_indices)),
+    "test_samples": int(len(test_indices)),
+    "accuracy": test_accuracy,
+    "mean_grid_error": test_mean_grid_error,
+    "median_grid_error": test_median_grid_error,
+    "rmse_grid_error": test_rmse_grid_error,
+    "trainable_parameters": count_trainable_parameters(model),
+    "best_epoch": best_epoch,
+    "epochs_ran": len(history),
+    "early_stopped": early_stopped,
+    "training_time_seconds": training_time_seconds,
+    "test_time_seconds": test_time_seconds,
+}
 
+    update_summary_csv(
+        summary_row=summary_row,
+        summary_csv_file=SUMMARY_CSV_FILE,
+    )
     print()
     print("TRAINING COMPLETED")
     print(f"epochs ran: {len(history)}")
@@ -666,11 +768,13 @@ def main() -> None:
     print(f"test loss: {test_loss:.4f}")
     print(f"test accuracy: {test_accuracy:.4f}")
     print(f"test mean grid error: {test_mean_grid_error:.4f}")
+    print(f"test median grid error: {test_median_grid_error:.4f}")
     print(f"test rmse grid error: {test_rmse_grid_error:.4f}")
     print(f"training time seconds: {training_time_seconds:.2f}")
     print(f"test time seconds: {test_time_seconds:.2f}")
     print(f"best model saved to: {BEST_MODEL_FILE}")
     print(f"metrics saved to: {METRICS_FILE}")
+    print(f"summary CSV saved to: {SUMMARY_CSV_FILE}")
 
 
 if __name__ == "__main__":

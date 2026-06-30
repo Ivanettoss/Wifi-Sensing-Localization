@@ -1,4 +1,6 @@
 {
+    "model_name": "MLP",
+    "experiment": "full_random_seed42",
     "dataset_file": "C:\\Users\\ivand\\Desktop\\WifiSIL\\data\\processed\\meeting_room_full_windows_30.npz",
     "best_model_file": "C:\\Users\\ivand\\Desktop\\WifiSIL\\outputs\\models\\mlp_meeting_room_full_best.pt",
     "split_file": "C:\\Users\\ivand\\Desktop\\WifiSIL\\outputs\\splits\\meeting_room_full_train_val_test_split_seed42.npz",
@@ -24,13 +26,15 @@
     "best_val_loss": 0.021677857446907596,
     "best_val_accuracy": 0.9920454545454546,
     "best_val_mean_grid_error": 0.04985540732741356,
+    "best_val_median_grid_error": 0.0,
     "best_val_rmse_grid_error": 0.613299548625946,
     "test_loss": 0.03636718246958811,
     "test_accuracy": 0.9880681818181818,
     "test_mean_grid_error": 0.06119447201490402,
+    "test_median_grid_error": 0.0,
     "test_rmse_grid_error": 0.6479863524436951,
-    "training_time_seconds": 34.54937620000055,
-    "test_time_seconds": 0.38018190000002505,
+    "training_time_seconds": 43.86195189999944,
+    "test_time_seconds": 0.1971702999999252,
     "history": [
         {
             "epoch": 1,
@@ -39,6 +43,7 @@
             "val_loss": 0.5506096113811839,
             "val_accuracy": 0.8670454545454546,
             "val_mean_grid_error": 0.7720053195953369,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 2.3705101013183594
         },
         {
@@ -48,6 +53,7 @@
             "val_loss": 0.12195415442640131,
             "val_accuracy": 0.9772727272727273,
             "val_mean_grid_error": 0.1607692539691925,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 1.1764739751815796
         },
         {
@@ -57,6 +63,7 @@
             "val_loss": 0.08007143343036825,
             "val_accuracy": 0.9761363636363637,
             "val_mean_grid_error": 0.11670350283384323,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.8574539422988892
         },
         {
@@ -66,6 +73,7 @@
             "val_loss": 0.058582097461277786,
             "val_accuracy": 0.9829545454545454,
             "val_mean_grid_error": 0.09000042825937271,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.757537841796875
         },
         {
@@ -75,6 +83,7 @@
             "val_loss": 0.04801243655383587,
             "val_accuracy": 0.9863636363636363,
             "val_mean_grid_error": 0.07869801670312881,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.7446780800819397
         },
         {
@@ -84,6 +93,7 @@
             "val_loss": 0.04515389079566706,
             "val_accuracy": 0.990909090909091,
             "val_mean_grid_error": 0.06847495585680008,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.7446780800819397
         },
         {
@@ -93,6 +103,7 @@
             "val_loss": 0.021794909044084224,
             "val_accuracy": 0.9931818181818182,
             "val_mean_grid_error": 0.053242068737745285,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.6809085011482239
         },
         {
@@ -102,6 +113,7 @@
             "val_loss": 0.04020108629695394,
             "val_accuracy": 0.9886363636363636,
             "val_mean_grid_error": 0.052116718143224716,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.5528849959373474
         },
         {
@@ -111,6 +123,7 @@
             "val_loss": 0.021677857446907596,
             "val_accuracy": 0.9920454545454546,
             "val_mean_grid_error": 0.04985540732741356,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.613299548625946
         },
         {
@@ -120,6 +133,7 @@
             "val_loss": 0.026449303011494604,
             "val_accuracy": 0.9920454545454546,
             "val_mean_grid_error": 0.053023528307676315,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.6333532929420471
         },
         {
@@ -129,6 +143,7 @@
             "val_loss": 0.034343687004663725,
             "val_accuracy": 0.9897727272727272,
             "val_mean_grid_error": 0.04735933616757393,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.515663743019104
         },
         {
@@ -138,6 +153,7 @@
             "val_loss": 0.040360612535468215,
             "val_accuracy": 0.9886363636363636,
             "val_mean_grid_error": 0.04708283767104149,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.47434163093566895
         },
         {
@@ -147,6 +163,7 @@
             "val_loss": 0.061389843255958775,
             "val_accuracy": 0.9863636363636363,
             "val_mean_grid_error": 0.09374164789915085,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.8660253882408142
         },
         {
@@ -156,6 +173,7 @@
             "val_loss": 0.02494407516893592,
             "val_accuracy": 0.9920454545454546,
             "val_mean_grid_error": 0.04273640364408493,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.5690901875495911
         },
         {
@@ -165,6 +183,7 @@
             "val_loss": 0.027036823759871452,
             "val_accuracy": 0.9931818181818182,
             "val_mean_grid_error": 0.045784205198287964,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.5799686312675476
         },
         {
@@ -174,6 +193,7 @@
             "val_loss": 0.03055713524703275,
             "val_accuracy": 0.990909090909091,
             "val_mean_grid_error": 0.052575260400772095,
+            "val_median_grid_error": 0.0,
             "val_rmse_grid_error": 0.5982930064201355
         }
     ]

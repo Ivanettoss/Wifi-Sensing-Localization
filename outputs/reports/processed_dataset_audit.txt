@@ -1,0 +1,277 @@
+
+==========================================================================================
+PROCESSED DATASET AUDIT
+==========================================================================================
+Project root: C:\Users\ivand\Desktop\WifiSIL
+Dataset path: C:\Users\ivand\Desktop\WifiSIL\data\processed\meeting_room_full_windows_30.npz
+Split path: C:\Users\ivand\Desktop\WifiSIL\outputs\splits\meeting_room_full_train_val_test_split_seed42.npz
+
+==========================================================================================
+NPZ CONTENT
+==========================================================================================
+Dataset file: C:\Users\ivand\Desktop\WifiSIL\data\processed\meeting_room_full_windows_30.npz
+Available arrays: ['x_windows', 'y_labels', 'grid_positions', 'source_file_names', 'source_sample_indices', 'window_indices', 'window_start_packets', 'window_end_packets', 'window_size', 'stride']
+
+x_windows
+  shape: (8800, 3, 30, 30)
+  dtype: float32
+  memory: 90.64 MB
+
+y_labels
+  shape: (8800,)
+  dtype: int64
+  memory: 68.75 KB
+
+grid_positions
+  shape: (8800, 2)
+  dtype: int64
+  memory: 137.50 KB
+
+source_file_names
+  shape: (8800,)
+  dtype: <U37
+  memory: 1.24 MB
+
+source_sample_indices
+  shape: (8800,)
+  dtype: int64
+  memory: 68.75 KB
+
+window_indices
+  shape: (8800,)
+  dtype: int64
+  memory: 68.75 KB
+
+window_start_packets
+  shape: (8800,)
+  dtype: int64
+  memory: 68.75 KB
+
+window_end_packets
+  shape: (8800,)
+  dtype: int64
+  memory: 68.75 KB
+
+window_size
+  shape: ()
+  dtype: int64
+  memory: 8.00 B
+
+stride
+  shape: ()
+  dtype: int64
+  memory: 8.00 B
+
+==========================================================================================
+CORE SHAPES
+==========================================================================================
+x_windows shape: (8800, 3, 30, 30)
+y_labels shape: (8800,)
+grid_positions shape: (8800, 2)
+
+Interpreted x_windows dimensions:
+  num_samples: 8800
+  num_channels / antennas: 3
+  matrix height: 30
+  matrix width: 30
+
+For this project, each sample is interpreted as:
+  [antennas, CSI matrix dimension 1, CSI matrix dimension 2]
+  expected shape: [3, 30, 30]
+
+------------------------------------------------------------------------------------------
+NUMERIC STATS: x_windows
+------------------------------------------------------------------------------------------
+total values: 23760000
+finite values: 23760000
+nan values: 0
+inf values: 0
+min: -10.962684
+max: 37.169502
+mean: 18.745934
+std: 6.584642
+percentiles:
+  p  0: -10.962684
+  p  1: -1.762215
+  p  5: 6.165464
+  p 25: 14.701972
+  p 50: 20.331972
+  p 75: 24.080935
+  p 95: 26.429907
+  p 99: 27.625996
+  p100: 37.169502
+
+------------------------------------------------------------------------------------------
+CHANNEL / ANTENNA STATS
+------------------------------------------------------------------------------------------
+
+channel 0
+  shape: (8800, 30, 30)
+  min: -10.898507
+  max: 37.169502
+  mean: 21.938589
+  std: 4.666894
+
+channel 1
+  shape: (8800, 30, 30)
+  min: -10.962684
+  max: 36.571552
+  mean: 21.076136
+  std: 5.172829
+
+channel 2
+  shape: (8800, 30, 30)
+  min: -10.315977
+  max: 36.912357
+  mean: 13.223065
+  std: 5.950582
+
+==========================================================================================
+LABEL ANALYSIS
+==========================================================================================
+num samples: 8800
+num classes: 176
+min label: 0
+max label: 175
+labels are contiguous integers: True
+
+samples per class:
+  min: 50
+  max: 50
+  mean: 50.00
+  std: 0.00
+balanced class counts: True
+
+first 10 labels:
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+last 10 labels:
+[175, 175, 175, 175, 175, 175, 175, 175, 175, 175]
+
+==========================================================================================
+ORDER / BLOCK ANALYSIS
+==========================================================================================
+labels stored in contiguous blocks: True
+constant number of samples per label: True
+block size min: 50
+block size max: 50
+block size mean: 50.00
+
+Important interpretation:
+If labels are contiguous blocks and the preprocessing script generated windows sequentially from packet order without shuffling, then the rank inside each label can be interpreted as the acquisition-window order.
+This script can verify structural ordering in the processed .npz file, but it cannot prove temporal meaning unless the preprocessing code also preserved packet order.
+
+==========================================================================================
+GRID POSITION ANALYSIS
+==========================================================================================
+grid_positions shape: (8800, 2)
+unique positions: 176
+
+coordinate ranges:
+  x min: 1
+  x max: 16
+  y min: 1
+  y max: 11
+
+labels with exactly one unique position: 176
+labels with inconsistent positions: 0
+Each label maps to exactly one spatial position.
+
+first 10 label-position mappings:
+  label 000: (1.0, 1.0)
+  label 001: (1.0, 2.0)
+  label 002: (1.0, 3.0)
+  label 003: (1.0, 4.0)
+  label 004: (1.0, 5.0)
+  label 005: (1.0, 6.0)
+  label 006: (1.0, 7.0)
+  label 007: (1.0, 8.0)
+  label 008: (1.0, 9.0)
+  label 009: (1.0, 10.0)
+Label summary CSV saved to: C:\Users\ivand\Desktop\WifiSIL\outputs\reports\processed_dataset_label_summary.csv
+
+==========================================================================================
+SPLIT INTEGRITY
+==========================================================================================
+train samples: 6160
+validation samples: 880
+test samples: 1760
+total split samples: 8800
+dataset samples: 8800
+
+train/validation overlap: 0
+train/test overlap: 0
+validation/test overlap: 0
+split covers all dataset samples: True
+indices out of range: 0
+
+==========================================================================================
+SPLIT DISTRIBUTION BY CLASS
+==========================================================================================
+
+train
+  samples: 6160
+  per-class min: 35
+  per-class max: 35
+  per-class mean: 35.00
+  per-class std: 0.00
+  balanced per class: True
+
+validation
+  samples: 880
+  per-class min: 5
+  per-class max: 5
+  per-class mean: 5.00
+  per-class std: 0.00
+  balanced per class: True
+
+test
+  samples: 1760
+  per-class min: 10
+  per-class max: 10
+  per-class mean: 10.00
+  per-class std: 0.00
+  balanced per class: True
+
+------------------------------------------------------------------------------------------
+CURRENT SPLIT WINDOW-RANK INTERPRETATION
+------------------------------------------------------------------------------------------
+The rank columns show which within-label window positions are used by each split. If train/validation/test ranks are mixed across the full 0..49 range, the split is random-like with respect to window order.
+If train ranks are early, validation ranks are middle, and test ranks are late, the split is block-like with respect to window order.
+
+label 000
+  train count=35, rank range=[0, 48], rank mean=23.83
+  val count=5, rank range=[2, 43], rank mean=28.60
+  test count=10, rank range=[7, 49], rank mean=24.80
+
+label 001
+  train count=35, rank range=[0, 49], rank mean=26.74
+  val count=5, rank range=[3, 47], rank mean=21.20
+  test count=10, rank range=[1, 43], rank mean=18.30
+
+label 002
+  train count=35, rank range=[0, 49], rank mean=23.80
+  val count=5, rank range=[6, 48], rank mean=21.20
+  test count=10, rank range=[4, 47], rank mean=28.60
+
+label 003
+  train count=35, rank range=[0, 49], rank mean=25.03
+  val count=5, rank range=[5, 41], rank mean=26.40
+  test count=10, rank range=[1, 42], rank mean=21.70
+
+label 004
+  train count=35, rank range=[3, 48], rank mean=23.71
+  val count=5, rank range=[0, 44], rank mean=23.80
+  test count=10, rank range=[1, 49], rank mean=27.60
+Split summary CSV saved to: C:\Users\ivand\Desktop\WifiSIL\outputs\reports\processed_dataset_split_summary.csv
+
+==========================================================================================
+FINAL INTERPRETATION CHECKLIST
+==========================================================================================
+1. If x_windows has shape [8800, 3, 30, 30], the processed CSI windows are ready.
+2. If y_labels has 176 balanced classes, each reference point has the same number of windows.
+3. If each label maps to exactly one grid position, classification errors can be converted into spatial errors.
+4. If labels are stored in contiguous blocks of 50, the processed file likely preserves reference-point grouping.
+5. If preprocessing generated windows sequentially and did not shuffle them, the within-label rank can represent acquisition-window order.
+6. If the existing split has mixed within-label ranks, it is random-like with respect to acquisition-window order.
+7. An ordered-window split is valid only if preprocessing preserved packet/window order.

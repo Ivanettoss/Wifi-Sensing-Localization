@@ -1,20 +1,19 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import copy
 import random
+import csv
+import time
 
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-
-# =============================================================================
-# PROJECT PATHS
-# =============================================================================
-
+#Paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = PROJECT_ROOT / "src"
 
@@ -23,18 +22,22 @@ sys.path.append(str(SRC_DIR))
 
 from models.llt import LLT, count_trainable_parameters
 
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
-
+#Setup
 SEED = 42
 
 DATASET_PATH = PROJECT_ROOT / "data" / "processed" / "meeting_room_full_windows_30.npz"
 SPLIT_PATH = PROJECT_ROOT / "outputs" / "splits" / "meeting_room_full_train_val_test_split_seed42.npz"
 
-CHECKPOINT_DIR = PROJECT_ROOT / "outputs" / "checkpoints"
-CHECKPOINT_PATH = CHECKPOINT_DIR / "llt_classifier_best_2h.pt"
+CHECKPOINT_DIR = PROJECT_ROOT / "outputs" / "models"
+CHECKPOINT_PATH = CHECKPOINT_DIR /  "llt_meeting_room_full_best.pt"
+
+OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
+METRICS_PATH = OUTPUT_LOGS_DIR / "llt_meeting_room_full_metrics.json"
+
+SUMMARY_CSV_PATH = (
+    OUTPUT_LOGS_DIR
+    / "fingerprint_classification_full_random_results.csv"
+)
 
 BATCH_SIZE = 64
 EPOCHS = 40
@@ -55,25 +58,15 @@ DROPOUT = 0.1
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-# =============================================================================
-# REPRODUCIBILITY
-# =============================================================================
+# Reproducibility
 
 def set_seed(seed: int) -> None:
-    """Set random seeds for reproducibility."""
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-
-# =============================================================================
-# DATA LOADING
-# =============================================================================
 
 def load_dataset(dataset_path: Path) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -230,19 +223,6 @@ def build_class_positions(
 # METRICS
 # =============================================================================
 
-def compute_topk_accuracy(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    k: int,
-) -> float:
-    """Compute top-k accuracy for a batch."""
-
-    topk_predictions = logits.topk(k, dim=1).indices
-    correct = topk_predictions.eq(labels.view(-1, 1)).any(dim=1)
-
-    return correct.float().mean().item()
-
-
 def compute_spatial_error(
     predictions: torch.Tensor,
     true_positions: torch.Tensor,
@@ -324,9 +304,9 @@ def evaluate(
 
     total_loss = 0.0
     total_correct = 0
-    total_top5 = 0.0
-    total_spatial_error = 0.0
     total_samples = 0
+
+    all_spatial_errors = []
 
     class_positions = class_positions.to(device)
 
@@ -349,27 +329,96 @@ def evaluate(
 
         total_loss += loss.item() * batch_size
         total_correct += (predictions == y_batch).sum().item()
-        total_top5 += compute_topk_accuracy(logits, y_batch, k=5) * batch_size
-        total_spatial_error += spatial_errors.sum().item()
         total_samples += batch_size
+
+        all_spatial_errors.append(spatial_errors.detach().cpu())
+
+    all_spatial_errors = torch.cat(all_spatial_errors, dim=0)
 
     metrics = {
         "loss": total_loss / total_samples,
         "accuracy": total_correct / total_samples,
-        "top5_accuracy": total_top5 / total_samples,
-        "mean_spatial_error": total_spatial_error / total_samples,
+        "mean_spatial_error": all_spatial_errors.mean().item(),
+        "median_spatial_error": torch.quantile(
+            all_spatial_errors,
+            0.5,
+        ).item(),
+        "rmse_spatial_error": torch.sqrt(
+            torch.mean(all_spatial_errors ** 2)
+        ).item(),
     }
 
     return metrics
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
+def update_summary_csv(
+    summary_row: dict,
+    summary_csv_path: Path,
+) -> None:
+    """
+    Save or update the final model row in the summary CSV.
 
+    If the same model already exists, its row is replaced.
+    """
+
+    fieldnames = [
+        "model",
+        "dataset",
+        "experiment",
+        "split_file",
+        "best_model_file",
+        "num_classes",
+        "train_samples",
+        "val_samples",
+        "test_samples",
+        "accuracy",
+        "mean_grid_error",
+        "median_grid_error",
+        "rmse_grid_error",
+        "trainable_parameters",
+        "best_epoch",
+        "epochs_ran",
+        "early_stopped",
+        "training_time_seconds",
+        "test_time_seconds",
+    ]
+
+    rows = []
+
+    if summary_csv_path.exists():
+        with open(
+            summary_csv_path,
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as input_file:
+            reader = csv.DictReader(input_file)
+
+            for row in reader:
+                if row.get("model") != summary_row["model"]:
+                    rows.append(row)
+
+    rows.append(summary_row)
+
+    with open(
+        summary_csv_path,
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as output_file:
+        writer = csv.DictWriter(
+            output_file,
+            fieldnames=fieldnames,
+        )
+
+        writer.writeheader()
+        writer.writerows(rows)
+
+# Main
 def main() -> None:
     set_seed(SEED)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     print("LLT CLASSIFIER TRAINING")
     print("device:", DEVICE)
@@ -385,12 +434,18 @@ def main() -> None:
     print("num_classes:", int(y_tensor.max().item() + 1))
 
     train_idx, val_idx, test_idx = load_split_indices(SPLIT_PATH)
+    train_mean = float(x_tensor[train_idx].mean())
+    train_std = float(x_tensor[train_idx].std())
+
+    x_tensor = (x_tensor - train_mean) / (train_std + 1e-8)
 
     print("\nSPLIT")
     print("Loaded existing split from:", SPLIT_PATH)
     print("train samples:", len(train_idx))
     print("val samples:", len(val_idx))
     print("test samples:", len(test_idx))
+    print("train mean:", f"{train_mean:.6f}")
+    print("train std:", f"{train_std:.6f}")
 
     train_loader, val_loader, test_loader = build_loaders(
         x_tensor=x_tensor,
@@ -444,10 +499,14 @@ def main() -> None:
         factor=0.5,
         patience=3,
     )
-
+     
     best_val_loss = float("inf")
     best_state_dict = None
+    best_epoch = -1
+    best_val_metrics = None
     bad_epochs = 0
+    early_stopped = False
+    history = []
 
     print("\nTRAINING")
     print("epochs:", EPOCHS)
@@ -455,6 +514,8 @@ def main() -> None:
     print("learning_rate:", LEARNING_RATE)
     print("weight_decay:", WEIGHT_DECAY)
     print("patience:", PATIENCE)
+
+    training_start_time = time.perf_counter()
 
     for epoch in range(1, EPOCHS + 1):
         train_loss, train_acc = train_one_epoch(
@@ -476,12 +537,26 @@ def main() -> None:
         scheduler.step(val_metrics["loss"])
 
         current_lr = optimizer.param_groups[0]["lr"]
+        epoch_metrics = {
+    "epoch": epoch,
+    "train_loss": train_loss,
+    "train_accuracy": train_acc,
+    "val_loss": val_metrics["loss"],
+    "val_accuracy": val_metrics["accuracy"],
+    "val_mean_spatial_error": val_metrics["mean_spatial_error"],
+    "val_median_spatial_error": val_metrics["median_spatial_error"],
+    "val_rmse_spatial_error": val_metrics["rmse_spatial_error"],
+    "learning_rate": current_lr,
+}
 
+        history.append(epoch_metrics)
         improved = val_metrics["loss"] < best_val_loss
 
         if improved:
             best_val_loss = val_metrics["loss"]
             best_state_dict = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            best_val_metrics = copy.deepcopy(val_metrics)
             bad_epochs = 0
 
             torch.save(
@@ -497,7 +572,15 @@ def main() -> None:
                         "num_classes": NUM_CLASSES,
                     },
                     "best_val_loss": best_val_loss,
-                    "epoch": epoch,
+                    "best_epoch": best_epoch,
+                    "best_val_accuracy": best_val_metrics["accuracy"],
+                    "best_val_mean_spatial_error": best_val_metrics["mean_spatial_error"],
+                    "best_val_median_spatial_error": best_val_metrics["median_spatial_error"],
+                    "best_val_rmse_spatial_error": best_val_metrics["rmse_spatial_error"],
+                    "train_mean": train_mean,
+                    "train_std": train_std,
+                    "split_file": str(SPLIT_PATH),
+                    "dataset_file": str(DATASET_PATH),
                 },
                 CHECKPOINT_PATH,
             )
@@ -514,15 +597,18 @@ def main() -> None:
             f"train_acc={train_acc:.4f} "
             f"val_loss={val_metrics['loss']:.4f} "
             f"val_acc={val_metrics['accuracy']:.4f} "
-            f"val_top5={val_metrics['top5_accuracy']:.4f} "
-            f"val_spatial_err={val_metrics['mean_spatial_error']:.4f} "
+            f"val_mean_err={val_metrics['mean_spatial_error']:.4f} "
+            f"val_median_err={val_metrics['median_spatial_error']:.4f} "
+            f"val_rmse_err={val_metrics['rmse_spatial_error']:.4f}"
             f"bad={bad_epochs}/{PATIENCE} {best_marker}"
         )
 
         if bad_epochs >= PATIENCE:
+            early_stopped = True
             print(f"\nEarly stopping at epoch {epoch}.")
             break
-
+        
+    training_time_seconds = time.perf_counter() - training_start_time
     if best_state_dict is None:
         raise RuntimeError("No best model state was saved during training.")
 
@@ -532,6 +618,7 @@ def main() -> None:
     print("saved to:", CHECKPOINT_PATH)
     print("best val loss:", best_val_loss)
 
+    test_start_time = time.perf_counter()
     test_metrics = evaluate(
         model=model,
         loader=test_loader,
@@ -539,13 +626,93 @@ def main() -> None:
         device=DEVICE,
         class_positions=class_positions,
     )
+    test_time_seconds = time.perf_counter() - test_start_time
+    if best_val_metrics is None:
+        raise RuntimeError("Best validation metrics were not saved.")
 
+    metrics_output = {
+        "model_name": "LLT",
+        "experiment": "full_random_seed42",
+        "dataset_file": str(DATASET_PATH),
+        "best_model_file": str(CHECKPOINT_PATH),
+        "split_file": str(SPLIT_PATH),
+        "num_classes": NUM_CLASSES,
+        "epochs": EPOCHS,
+        "epochs_ran": len(history),
+        "early_stopped": early_stopped,
+        "patience": PATIENCE,
+        "batch_size": BATCH_SIZE,
+        "learning_rate": LEARNING_RATE,
+        "weight_decay": WEIGHT_DECAY,
+        "grad_clip_norm": GRAD_CLIP_NORM,
+        "patch_size": PATCH_SIZE,
+        "embed_dim": EMBED_DIM,
+        "depth": DEPTH,
+        "num_heads": NUM_HEADS,
+        "mlp_ratio": MLP_RATIO,
+        "dropout": DROPOUT,
+        "train_samples": int(len(train_idx)),
+        "val_samples": int(len(val_idx)),
+        "test_samples": int(len(test_idx)),
+        "train_mean": train_mean,
+        "train_std": train_std,
+        "trainable_parameters": count_trainable_parameters(model),
+        "best_epoch": best_epoch,
+        "best_val_loss": best_val_loss,
+        "best_val_accuracy": best_val_metrics["accuracy"],
+        "best_val_mean_spatial_error": best_val_metrics["mean_spatial_error"],
+        "best_val_median_spatial_error": best_val_metrics["median_spatial_error"],
+        "best_val_rmse_spatial_error": best_val_metrics["rmse_spatial_error"],
+        "test_loss": test_metrics["loss"],
+        "test_accuracy": test_metrics["accuracy"],
+        "test_mean_spatial_error": test_metrics["mean_spatial_error"],
+        "test_median_spatial_error": test_metrics["median_spatial_error"],
+        "test_rmse_spatial_error": test_metrics["rmse_spatial_error"],
+        "training_time_seconds": training_time_seconds,
+        "test_time_seconds": test_time_seconds,
+        "history": history,
+    }
+
+    with open(METRICS_PATH, "w", encoding="utf-8") as output_file:
+        json.dump(metrics_output, output_file, indent=4)
+
+    summary_row = {
+        "model": "LLT",
+        "dataset": "meeting_room_full_windows_30",
+        "experiment": "full_random_seed42",
+        "split_file": str(SPLIT_PATH),
+        "best_model_file": str(CHECKPOINT_PATH),
+        "num_classes": NUM_CLASSES,
+        "train_samples": int(len(train_idx)),
+        "val_samples": int(len(val_idx)),
+        "test_samples": int(len(test_idx)),
+        "accuracy": test_metrics["accuracy"],
+        "mean_grid_error": test_metrics["mean_spatial_error"],
+        "median_grid_error": test_metrics["median_spatial_error"],
+        "rmse_grid_error": test_metrics["rmse_spatial_error"],
+        "trainable_parameters": count_trainable_parameters(model),
+        "best_epoch": best_epoch,
+        "epochs_ran": len(history),
+        "early_stopped": early_stopped,
+        "training_time_seconds": training_time_seconds,
+        "test_time_seconds": test_time_seconds,
+    }
+
+    update_summary_csv(
+        summary_row=summary_row,
+        summary_csv_path=SUMMARY_CSV_PATH,
+    )
     print("\nTEST")
     print("test_loss:", f"{test_metrics['loss']:.4f}")
     print("test_accuracy:", f"{test_metrics['accuracy']:.4f}")
-    print("test_top5_accuracy:", f"{test_metrics['top5_accuracy']:.4f}")
     print("test_mean_spatial_error:", f"{test_metrics['mean_spatial_error']:.4f}")
-
+    print("test_median_spatial_error:", f"{test_metrics['median_spatial_error']:.4f}")
+    print("test_rmse_spatial_error:", f"{test_metrics['rmse_spatial_error']:.4f}")
+    print("training_time_seconds:", f"{training_time_seconds:.2f}")
+    print("test_time_seconds:", f"{test_time_seconds:.2f}")
+    print("best model saved to:", CHECKPOINT_PATH)
+    print("metrics saved to:", METRICS_PATH)
+    print("summary CSV saved to:", SUMMARY_CSV_PATH)
 
 if __name__ == "__main__":
     main()
