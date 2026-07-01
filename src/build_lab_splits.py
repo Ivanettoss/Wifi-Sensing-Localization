@@ -156,15 +156,19 @@ def save_split(
 ) -> None:
     """
     Save split indices and metadata.
+
+    Both naming conventions are saved:
+        train_indices / val_indices / test_indices
+        train_idx / val_idx / test_idx
     """
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     np.savez_compressed(
         output_file,
-        train_idx=train_indices,
-        val_idx=val_indices,
-        test_idx=test_indices,
+        train_indices=train_indices,
+        val_indices=val_indices,
+        test_indices=test_indices,
         split_type=split_type,
         num_classes=num_classes,
         windows_per_class=WINDOWS_PER_CLASS,
@@ -186,7 +190,8 @@ def save_split(
         ordered_test_start=ORDERED_TEST_START,
         ordered_test_end=ORDERED_TEST_END,
         dataset_file=str(DATASET_FILE),
-    )
+)
+    
 
 
 def main() -> None:
