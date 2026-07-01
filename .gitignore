@@ -21,18 +21,33 @@ data/processed/*
 *.mat
 *.npy
 *.npz
-*.csv
 
-# Results: keep folders, ignore contents
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+outputs/models/*
+!outputs/models/.gitkeep
+
+# Generated split files
+outputs/splits/*.npz
+!outputs/splits/.gitkeep
+
+# Detailed experiment logs
+outputs/logs/*_metrics.json
+outputs/logs/*_history.csv
+
+# Ignore generic CSV files, but keep final summary CSV files
+*.csv
+!outputs/logs/fingerprint_classification_full_random_results.csv
+!outputs/logs/fingerprint_classification_ordered_k_results.csv
+
+# Reports / results
 results/figures/*
 !results/figures/.gitkeep
 
 results/tables/*
 !results/tables/.gitkeep
-
-*.pt
-*.pth
-*.ckpt
 
 # OS / IDE
 .DS_Store
