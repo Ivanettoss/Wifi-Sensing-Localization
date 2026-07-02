@@ -157,9 +157,9 @@ def save_split(
     """
     Save split indices and metadata.
 
-    Both naming conventions are saved:
+    Naming conventions are saved:
         train_indices / val_indices / test_indices
-        train_idx / val_idx / test_idx
+        
     """
 
     output_file.parent.mkdir(parents=True, exist_ok=True)

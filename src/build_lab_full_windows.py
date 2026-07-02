@@ -82,6 +82,47 @@ def parse_grid_position(mat_file: Path) -> tuple[int, int]:
 
     return x_position, y_position
 
+def replace_non_finite_values(
+    csi_array: np.ndarray,
+    mat_file: Path,
+) -> np.ndarray:
+    """
+    Replace NaN and infinite values with finite values.
+
+    Negative infinity is replaced with the minimum finite value in the file.
+    Positive infinity is replaced with the maximum finite value in the file.
+    NaN values are replaced with the mean finite value in the file.
+    """
+
+    finite_mask = np.isfinite(csi_array)
+
+    if finite_mask.all():
+        return csi_array
+
+    if not finite_mask.any():
+        raise ValueError(f"All values are non-finite in file: {mat_file}")
+
+    finite_values = csi_array[finite_mask]
+
+    finite_min = float(finite_values.min())
+    finite_max = float(finite_values.max())
+    finite_mean = float(finite_values.mean())
+
+    non_finite_count = int((~finite_mask).sum())
+
+    print(
+        f"Warning: replaced {non_finite_count} non-finite values "
+        f"in {mat_file.name}"
+    )
+
+    csi_array = np.nan_to_num(
+        csi_array,
+        nan=finite_mean,
+        posinf=finite_max,
+        neginf=finite_min,
+    )
+
+    return csi_array.astype(np.float32)
 
 def load_csi_array(mat_file: Path) -> np.ndarray:
     """
@@ -121,6 +162,8 @@ def load_csi_array(mat_file: Path) -> np.ndarray:
     )
 
     csi_array = candidate_arrays[0].astype(np.float32)
+    csi_array = replace_non_finite_values(csi_array, mat_file)  #due to -inf values in lab dataset
+
 
     return standardize_csi_shape(csi_array, mat_file)
 
