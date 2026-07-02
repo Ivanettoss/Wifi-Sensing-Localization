@@ -22,31 +22,72 @@ if str(SRC_DIR) not in sys.path:
 
 from models.mlp import MLPClassifier, count_trainable_parameters
 
+#DYNAMIC DATASET CONFIGS
+# Choose the dataset to train (lab or meeting_room)
 
-DATASET_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "meeting_room_full_windows_30.npz"
-)
+DATASET_NAME = "lab"   #switch to "meeting_room" for it
+
+DATASET_CONFIGS = {
+    "meeting_room": {
+        "dataset_file": "meeting_room_full_windows_30.npz",
+        "split_file": "meeting_room_full_train_val_test_split_seed42.npz",
+        "dataset_label": "meeting_room_full_windows_30",
+        "experiment": "full_random_seed42",
+        "model_prefix": "meeting_room_full",
+        "summary_csv": "fingerprint_classification_full_random_results.csv",
+    },
+    "lab": {
+        "dataset_file": "lab_full_windows_30.npz",
+        "split_file": "lab_full_train_val_test_split_seed42.npz",
+        "dataset_label": "lab_full_windows_30",
+        "experiment": "lab_full_random_seed42",
+        "model_prefix": "lab_full",
+        "summary_csv": "fingerprint_classification_lab_full_random_results.csv",
+    },
+}
+
+if DATASET_NAME not in DATASET_CONFIGS:
+    raise ValueError(
+        f"Invalid DATASET_NAME: {DATASET_NAME}. "
+        f"Choose one of: {list(DATASET_CONFIGS.keys())}"
+    )
+
+CONFIG = DATASET_CONFIGS[DATASET_NAME]
 
 OUTPUT_MODELS_DIR = PROJECT_ROOT / "outputs" / "models"
 OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
 OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
-BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "mlp_meeting_room_full_best.pt"
-METRICS_FILE = OUTPUT_LOGS_DIR / "mlp_meeting_room_full_metrics.json"
-
-HISTORY_CSV_FILE = OUTPUT_LOGS_DIR / "mlp_meeting_room_full_history.csv"
-
-SUMMARY_CSV_FILE = (
-    OUTPUT_LOGS_DIR
-    / "fingerprint_classification_full_random_results.csv"
+DATASET_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / CONFIG["dataset_file"]
 )
 
 SPLIT_FILE = (
     OUTPUT_SPLITS_DIR
-    / "meeting_room_full_train_val_test_split_seed42.npz"
+    / CONFIG["split_file"]
+)
+
+BEST_MODEL_FILE = (
+    OUTPUT_MODELS_DIR
+    / f"mlp_{CONFIG['model_prefix']}_best.pt"
+)
+
+METRICS_FILE = (
+    OUTPUT_LOGS_DIR
+    / f"mlp_{CONFIG['model_prefix']}_metrics.json"
+)
+
+HISTORY_CSV_FILE = (
+    OUTPUT_LOGS_DIR
+    / f"mlp_{CONFIG['model_prefix']}_history.csv"
+)
+
+SUMMARY_CSV_FILE = (
+    OUTPUT_LOGS_DIR
+    / CONFIG["summary_csv"]
 )
 
 RANDOM_SEED = 42
@@ -494,8 +535,11 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("MLP CLASSIFIER TRAINING")
+    print(f"dataset name: {DATASET_NAME}")
+    print(f"experiment: {CONFIG['experiment']}")
     print(f"device: {device}")
     print(f"dataset file: {DATASET_FILE}")
+    print(f"split file: {SPLIT_FILE}")
     print()
 
     if not DATASET_FILE.exists():
@@ -696,6 +740,7 @@ def main() -> None:
                     "model_state_dict": best_model_state_dict,
                     "input_dim": input_dim,
                     "num_classes": num_classes,
+                    "experiment": CONFIG["experiment"],
                     "train_mean": train_mean,
                     "train_std": train_std,
                     "class_grid_positions": class_grid_positions_np,
@@ -744,7 +789,8 @@ def main() -> None:
 
     metrics_output = {
         "model_name": "MLP",
-        "experiment": "full_random_seed42",
+        "dataset_name": DATASET_NAME,
+        "experiment": CONFIG["experiment"],
         "dataset_file": str(DATASET_FILE),
         "best_model_file": str(BEST_MODEL_FILE),
         "split_file": str(SPLIT_FILE),
@@ -785,14 +831,14 @@ def main() -> None:
     with open(METRICS_FILE, "w", encoding="utf-8") as output_file:
         json.dump(metrics_output, output_file, indent=4)
     save_history_csv(
-    history=history,
-    history_csv_file=HISTORY_CSV_FILE,
+        history=history,
+        history_csv_file=HISTORY_CSV_FILE,
 )
 
     summary_row = {
         "model": "MLP",
-        "dataset": "meeting_room_full_windows_30",
-        "experiment": "full_random_seed42",
+        "dataset": DATASET_NAME,
+        "experiment": CONFIG["experiment"],
         "split_file": str(SPLIT_FILE),
         "best_model_file": str(BEST_MODEL_FILE),
         "num_classes": num_classes,
