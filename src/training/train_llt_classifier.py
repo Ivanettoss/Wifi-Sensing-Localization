@@ -25,18 +25,66 @@ from models.llt import LLT, count_trainable_parameters
 #Setup
 SEED = 42
 
-DATASET_PATH = PROJECT_ROOT / "data" / "processed" / "meeting_room_full_windows_30.npz"
-SPLIT_PATH = PROJECT_ROOT / "outputs" / "splits" / "meeting_room_full_train_val_test_split_seed42.npz"
+# Choose the dataset to train on: "meeting_room" or "lab"
+
+DATASET_NAME = "lab"
+
+DATASET_CONFIGS = {
+    "meeting_room": {
+        "dataset_file": "meeting_room_full_windows_30.npz",
+        "split_file": "meeting_room_full_train_val_test_split_seed42.npz",
+        "dataset_label": "meeting_room_full_windows_30",
+        "experiment": "full_random_seed42",
+        "model_prefix": "meeting_room_full",
+        "summary_csv": "fingerprint_classification_full_random_results.csv",
+    },
+    "lab": {
+        "dataset_file": "lab_full_windows_30.npz",
+        "split_file": "lab_full_train_val_test_split_seed42.npz",
+        "dataset_label": "lab_full_windows_30",
+        "experiment": "lab_full_random_seed42",
+        "model_prefix": "lab_full",
+        "summary_csv": "fingerprint_classification_lab_full_random_results.csv",
+    },
+}
+
+if DATASET_NAME not in DATASET_CONFIGS:
+    raise ValueError(
+        f"Invalid DATASET_NAME: {DATASET_NAME}. "
+        f"Choose one of: {list(DATASET_CONFIGS.keys())}"
+    )
+
+CONFIG = DATASET_CONFIGS[DATASET_NAME]
+
+DATASET_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / CONFIG["dataset_file"]
+)
+
+SPLIT_PATH = (
+    PROJECT_ROOT
+    / "outputs"
+    / "splits"
+    / CONFIG["split_file"]
+)
 
 CHECKPOINT_DIR = PROJECT_ROOT / "outputs" / "models"
-CHECKPOINT_PATH = CHECKPOINT_DIR /  "llt_meeting_room_full_best.pt"
+CHECKPOINT_PATH = (
+    CHECKPOINT_DIR
+    / f"llt_{CONFIG['model_prefix']}_best.pt"
+)
 
 OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
-METRICS_PATH = OUTPUT_LOGS_DIR / "llt_meeting_room_full_metrics.json"
+METRICS_PATH = (
+    OUTPUT_LOGS_DIR
+    / f"llt_{CONFIG['model_prefix']}_metrics.json"
+)
 
 SUMMARY_CSV_PATH = (
     OUTPUT_LOGS_DIR
-    / "fingerprint_classification_full_random_results.csv"
+    / CONFIG["summary_csv"]
 )
 
 BATCH_SIZE = 64
@@ -45,8 +93,6 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 PATIENCE = 8
 GRAD_CLIP_NORM = 1.0
-
-NUM_CLASSES = 176
 
 # LLT architecture
 PATCH_SIZE = (5, 5)
@@ -421,17 +467,22 @@ def main() -> None:
     OUTPUT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     print("LLT CLASSIFIER TRAINING")
+    print("dataset name:", DATASET_NAME)
+    print("experiment:", CONFIG["experiment"])
     print("device:", DEVICE)
     print("dataset file:", DATASET_PATH)
     print("split file:", SPLIT_PATH)
 
     x_tensor, y_tensor, positions_tensor = load_dataset(DATASET_PATH)
 
+    #dynamic number of classes based on the dataset
+    num_classes = int(y_tensor.max().item() + 1)
+
     print("\nDATASET")
     print("x_windows shape:", tuple(x_tensor.shape))
     print("y_labels shape:", tuple(y_tensor.shape))
     print("grid_positions shape:", tuple(positions_tensor.shape))
-    print("num_classes:", int(y_tensor.max().item() + 1))
+    print("num_classes:", num_classes)
 
     train_idx, val_idx, test_idx = load_split_indices(SPLIT_PATH)
     train_mean = float(x_tensor[train_idx].mean())
@@ -460,7 +511,7 @@ def main() -> None:
     class_positions = build_class_positions(
         y_tensor=y_tensor,
         positions_tensor=positions_tensor,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
     )
 
     model = LLT(
@@ -472,7 +523,7 @@ def main() -> None:
         num_heads=NUM_HEADS,
         mlp_ratio=MLP_RATIO,
         dropout=DROPOUT,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
     ).to(DEVICE)
 
     print("\nMODEL")
@@ -562,6 +613,8 @@ def main() -> None:
             torch.save(
                 {
                     "model_state_dict": best_state_dict,
+                    "dataset_name": DATASET_NAME,
+                    "experiment": CONFIG["experiment"],
                     "config": {
                         "patch_size": PATCH_SIZE,
                         "embed_dim": EMBED_DIM,
@@ -569,7 +622,7 @@ def main() -> None:
                         "num_heads": NUM_HEADS,
                         "mlp_ratio": MLP_RATIO,
                         "dropout": DROPOUT,
-                        "num_classes": NUM_CLASSES,
+                        "num_classes": num_classes,
                     },
                     "best_val_loss": best_val_loss,
                     "best_epoch": best_epoch,
@@ -632,11 +685,12 @@ def main() -> None:
 
     metrics_output = {
         "model_name": "LLT",
-        "experiment": "full_random_seed42",
+        "dataset_name": DATASET_NAME,
+        "experiment": CONFIG["experiment"],
         "dataset_file": str(DATASET_PATH),
         "best_model_file": str(CHECKPOINT_PATH),
         "split_file": str(SPLIT_PATH),
-        "num_classes": NUM_CLASSES,
+        "num_classes": num_classes,
         "epochs": EPOCHS,
         "epochs_ran": len(history),
         "early_stopped": early_stopped,
@@ -678,11 +732,11 @@ def main() -> None:
 
     summary_row = {
         "model": "LLT",
-        "dataset": "meeting_room_full_windows_30",
-        "experiment": "full_random_seed42",
+        "dataset": DATASET_NAME,
+        "experiment": CONFIG["experiment"],
         "split_file": str(SPLIT_PATH),
         "best_model_file": str(CHECKPOINT_PATH),
-        "num_classes": NUM_CLASSES,
+        "num_classes": num_classes,
         "train_samples": int(len(train_idx)),
         "val_samples": int(len(val_idx)),
         "test_samples": int(len(test_idx)),
@@ -702,6 +756,12 @@ def main() -> None:
         summary_row=summary_row,
         summary_csv_path=SUMMARY_CSV_PATH,
     )
+    print("\nTRAINING COMPLETED")
+    print("dataset name:", DATASET_NAME)
+    print("experiment:", CONFIG["experiment"])
+    print("epochs ran:", len(history))
+    print("early stopped:", early_stopped)
+    print("best epoch:", best_epoch)
     print("\nTEST")
     print("test_loss:", f"{test_metrics['loss']:.4f}")
     print("test_accuracy:", f"{test_metrics['accuracy']:.4f}")
