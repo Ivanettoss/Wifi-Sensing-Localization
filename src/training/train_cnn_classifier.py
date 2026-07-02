@@ -21,28 +21,65 @@ if str(SRC_DIR) not in sys.path:
 from models.cnn import CNN2DClassifier, count_trainable_parameters
 
 
-DATASET_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "meeting_room_full_windows_30.npz"
-)
+# Choose the dataset to train on: "meeting_room" or "lab"
+DATASET_NAME = "lab"
+
+DATASET_CONFIGS = {
+    "meeting_room": {
+        "dataset_file": "meeting_room_full_windows_30.npz",
+        "split_file": "meeting_room_full_train_val_test_split_seed42.npz",
+        "dataset_label": "meeting_room_full_windows_30",
+        "experiment": "full_random_seed42",
+        "model_prefix": "meeting_room_full",
+        "summary_csv": "fingerprint_classification_full_random_results.csv",
+    },
+    "lab": {
+        "dataset_file": "lab_full_windows_30.npz",
+        "split_file": "lab_full_train_val_test_split_seed42.npz",
+        "dataset_label": "lab_full_windows_30",
+        "experiment": "lab_full_random_seed42",
+        "model_prefix": "lab_full",
+        "summary_csv": "fingerprint_classification_lab_full_random_results.csv",
+    },
+}
+
+if DATASET_NAME not in DATASET_CONFIGS:
+    raise ValueError(
+        f"Invalid DATASET_NAME: {DATASET_NAME}. "
+        f"Choose one of: {list(DATASET_CONFIGS.keys())}"
+    )
+
+CONFIG = DATASET_CONFIGS[DATASET_NAME]
 
 OUTPUT_MODELS_DIR = PROJECT_ROOT / "outputs" / "models"
 OUTPUT_LOGS_DIR = PROJECT_ROOT / "outputs" / "logs"
 OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
-BEST_MODEL_FILE = OUTPUT_MODELS_DIR / "cnn_meeting_room_full_best.pt"
-METRICS_FILE = OUTPUT_LOGS_DIR / "cnn_meeting_room_full_metrics.json"
-
-SUMMARY_CSV_FILE = (
-    OUTPUT_LOGS_DIR
-    / "fingerprint_classification_full_random_results.csv"
+DATASET_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / CONFIG["dataset_file"]
 )
 
 SPLIT_FILE = (
     OUTPUT_SPLITS_DIR
-    / "meeting_room_full_train_val_test_split_seed42.npz"
+    / CONFIG["split_file"]
+)
+
+BEST_MODEL_FILE = (
+    OUTPUT_MODELS_DIR
+    / f"cnn_{CONFIG['model_prefix']}_best.pt"
+)
+
+METRICS_FILE = (
+    OUTPUT_LOGS_DIR
+    / f"cnn_{CONFIG['model_prefix']}_metrics.json"
+)
+
+SUMMARY_CSV_FILE = (
+    OUTPUT_LOGS_DIR
+    / CONFIG["summary_csv"]
 )
 
 RANDOM_SEED = 42
@@ -445,6 +482,8 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("CNN CLASSIFIER TRAINING")
+    print(f"dataset name: {DATASET_NAME}")
+    print(f"experiment: {CONFIG['experiment']}")
     print(f"device: {device}")
     print(f"dataset file: {DATASET_FILE}")
     print()
@@ -644,6 +683,7 @@ def main() -> None:
                 {
                     "model_state_dict": best_model_state_dict,
                     "input_channels": input_channels,
+                    "experiment": CONFIG["experiment"],
                     "num_classes": num_classes,
                     "train_mean": train_mean,
                     "train_std": train_std,
@@ -693,7 +733,8 @@ def main() -> None:
 
     metrics_output = {
         "model_name": "CNN",
-        "experiment": "full_random_seed42",
+        "dataset_name": DATASET_NAME,
+        "experiment": CONFIG["experiment"],
         "dataset_file": str(DATASET_FILE),
         "best_model_file": str(BEST_MODEL_FILE),
         "split_file": str(SPLIT_FILE),
@@ -724,6 +765,7 @@ def main() -> None:
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
         "test_mean_grid_error": test_mean_grid_error,
+        "test_median_grid_error": test_median_grid_error,
         "test_rmse_grid_error": test_rmse_grid_error,
         "training_time_seconds": training_time_seconds,
         "test_time_seconds": test_time_seconds,
@@ -733,25 +775,25 @@ def main() -> None:
     with open(METRICS_FILE, "w", encoding="utf-8") as output_file:
         json.dump(metrics_output, output_file, indent=4)
     summary_row = {
-    "model": "CNN",
-    "dataset": "meeting_room_full_windows_30",
-    "experiment": "full_random_seed42",
-    "split_file": str(SPLIT_FILE),
-    "best_model_file": str(BEST_MODEL_FILE),
-    "num_classes": num_classes,
-    "train_samples": int(len(train_indices)),
-    "val_samples": int(len(val_indices)),
-    "test_samples": int(len(test_indices)),
-    "accuracy": test_accuracy,
-    "mean_grid_error": test_mean_grid_error,
-    "median_grid_error": test_median_grid_error,
-    "rmse_grid_error": test_rmse_grid_error,
-    "trainable_parameters": count_trainable_parameters(model),
-    "best_epoch": best_epoch,
-    "epochs_ran": len(history),
-    "early_stopped": early_stopped,
-    "training_time_seconds": training_time_seconds,
-    "test_time_seconds": test_time_seconds,
+        "model": "CNN",
+        "dataset": CONFIG["dataset_label"],
+        "experiment": CONFIG["experiment"],
+        "split_file": str(SPLIT_FILE),
+        "best_model_file": str(BEST_MODEL_FILE),
+        "num_classes": num_classes,
+        "train_samples": int(len(train_indices)),
+        "val_samples": int(len(val_indices)),
+        "test_samples": int(len(test_indices)),
+        "accuracy": test_accuracy,
+        "mean_grid_error": test_mean_grid_error,
+        "median_grid_error": test_median_grid_error,
+        "rmse_grid_error": test_rmse_grid_error,
+        "trainable_parameters": count_trainable_parameters(model),
+        "best_epoch": best_epoch,
+        "epochs_ran": len(history),
+        "early_stopped": early_stopped,
+        "training_time_seconds": training_time_seconds,
+        "test_time_seconds": test_time_seconds,
 }
 
     update_summary_csv(
@@ -760,6 +802,8 @@ def main() -> None:
     )
     print()
     print("TRAINING COMPLETED")
+    print(f"dataset name: {DATASET_NAME}")
+    print(f"experiment: {CONFIG['experiment']}")
     print(f"epochs ran: {len(history)}")
     print(f"early stopped: {early_stopped}")
     print(f"best epoch: {best_epoch}")
