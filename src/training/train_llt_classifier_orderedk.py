@@ -25,7 +25,42 @@ from models.llt import LLT, count_trainable_parameters
 # Setup
 SEED = 42
 
-DATASET_PATH = PROJECT_ROOT / "data" / "processed" / "meeting_room_full_windows_30.npz"
+ # Choose the dataset to train on: "meeting_room" or "lab"
+DATASET_NAME = "lab"
+
+DATASET_CONFIGS = {
+    "meeting_room": {
+        "dataset_file": "meeting_room_full_windows_30.npz",
+        "split_prefix": "meeting_room_ordered",
+        "dataset_label": "meeting_room_full_windows_30",
+        "experiment_prefix": "ordered_k",
+        "model_prefix": "meeting_room_ordered",
+        "summary_csv": "fingerprint_classification_ordered_k_results.csv",
+    },
+    "lab": {
+        "dataset_file": "lab_full_windows_30.npz",
+        "split_prefix": "lab_ordered",
+        "dataset_label": "lab_full_windows_30",
+        "experiment_prefix": "lab_ordered_k",
+        "model_prefix": "lab_ordered",
+        "summary_csv": "fingerprint_classification_lab_ordered_k_results.csv",
+    },
+}
+
+if DATASET_NAME not in DATASET_CONFIGS:
+    raise ValueError(
+        f"Invalid DATASET_NAME: {DATASET_NAME}. "
+        f"Choose one of: {list(DATASET_CONFIGS.keys())}"
+    )
+
+CONFIG = DATASET_CONFIGS[DATASET_NAME]
+
+DATASET_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / CONFIG["dataset_file"]
+)
 
 K_VALUES = [1, 5, 15, 25, 35]
 
@@ -35,21 +70,24 @@ OUTPUT_SPLITS_DIR = PROJECT_ROOT / "outputs" / "splits"
 
 SUMMARY_CSV_PATH = (
     OUTPUT_LOGS_DIR
-    / "fingerprint_classification_ordered_k_results.csv"
+    / CONFIG["summary_csv"]
 )
 
 
+def get_experiment_name(k: int) -> str:
+    return f"{CONFIG['experiment_prefix']}{k}_seed42"
+
+
 def get_split_path(k: int) -> Path:
-    return OUTPUT_SPLITS_DIR / f"meeting_room_ordered_k{k}_split.npz"
+    return OUTPUT_SPLITS_DIR / f"{CONFIG['split_prefix']}_k{k}_split.npz"
 
 
 def get_checkpoint_path(k: int) -> Path:
-    return CHECKPOINT_DIR / f"llt_meeting_room_ordered_k{k}_best.pt"
+    return CHECKPOINT_DIR / f"llt_{CONFIG['model_prefix']}_k{k}_best.pt"
 
 
 def get_metrics_path(k: int) -> Path:
-    return OUTPUT_LOGS_DIR / f"llt_meeting_room_ordered_k{k}_metrics.json"
-
+    return OUTPUT_LOGS_DIR / f"llt_{CONFIG['model_prefix']}_k{k}_metrics.json"
 
 BATCH_SIZE = 64
 EPOCHS = 40
@@ -57,8 +95,6 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 PATIENCE = 8
 GRAD_CLIP_NORM = 1.0
-
-NUM_CLASSES = 176
 
 # LLT architecture
 PATCH_SIZE = (5, 5)
@@ -437,6 +473,7 @@ def train_single_k(
     x_tensor: torch.Tensor,
     y_tensor: torch.Tensor,
     positions_tensor: torch.Tensor,
+    num_classes: int,
 ) -> None:
     set_seed(SEED)
 
@@ -448,6 +485,8 @@ def train_single_k(
     print("=" * 80)
     print(f"LLT ORDERED-K CLASSIFIER TRAINING | K={k}")
     print("=" * 80)
+    print("dataset name:", DATASET_NAME)
+    print("experiment:", get_experiment_name(k))
     print("device:", DEVICE)
     print("dataset file:", DATASET_PATH)
     print("split file:", split_path)
@@ -480,7 +519,7 @@ def train_single_k(
     class_positions = build_class_positions(
         y_tensor=y_tensor,
         positions_tensor=positions_tensor,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
     )
 
     model = LLT(
@@ -492,7 +531,7 @@ def train_single_k(
         num_heads=NUM_HEADS,
         mlp_ratio=MLP_RATIO,
         dropout=DROPOUT,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
     ).to(DEVICE)
 
     print("\nMODEL")
@@ -583,6 +622,8 @@ def train_single_k(
             torch.save(
                 {
                     "model_state_dict": best_state_dict,
+                    "dataset_name": DATASET_NAME,
+                    "experiment": get_experiment_name(k),
                     "config": {
                         "patch_size": PATCH_SIZE,
                         "embed_dim": EMBED_DIM,
@@ -590,10 +631,9 @@ def train_single_k(
                         "num_heads": NUM_HEADS,
                         "mlp_ratio": MLP_RATIO,
                         "dropout": DROPOUT,
-                        "num_classes": NUM_CLASSES,
+                        "num_classes": num_classes,
                     },
                     "k": k,
-                    "experiment": f"ordered_k{k}_seed42",
                     "best_val_loss": best_val_loss,
                     "best_epoch": best_epoch,
                     "best_val_accuracy": best_val_metrics["accuracy"],
@@ -660,12 +700,13 @@ def train_single_k(
 
     metrics_output = {
         "model_name": "LLT",
-        "experiment": f"ordered_k{k}_seed42",
+        "dataset_name": DATASET_NAME,
+        "experiment": get_experiment_name(k),
         "k": k,
         "dataset_file": str(DATASET_PATH),
         "best_model_file": str(checkpoint_path),
         "split_file": str(split_path),
-        "num_classes": NUM_CLASSES,
+        "num_classes": num_classes,
         "epochs": EPOCHS,
         "epochs_ran": len(history),
         "early_stopped": early_stopped,
@@ -709,11 +750,11 @@ def train_single_k(
     summary_row = {
         "model": "LLT",
         "k": k,
-        "dataset": "meeting_room_full_windows_30",
-        "experiment": f"ordered_k{k}_seed42",
+        "dataset": CONFIG["dataset_label"],
+        "experiment": get_experiment_name(k),
         "split_file": str(split_path),
         "best_model_file": str(checkpoint_path),
-        "num_classes": NUM_CLASSES,
+        "num_classes": num_classes,
         "train_samples": int(len(train_idx)),
         "val_samples": int(len(val_idx)),
         "test_samples": int(len(test_idx)),
@@ -754,6 +795,8 @@ def main() -> None:
     OUTPUT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     print("LLT ORDERED-K CLASSIFIER TRAINING")
+    print("dataset name:", DATASET_NAME)
+    print("summary csv:", SUMMARY_CSV_PATH)
     print("device:", DEVICE)
     print("dataset file:", DATASET_PATH)
     print("k values:", K_VALUES)
@@ -764,7 +807,8 @@ def main() -> None:
     print("x_windows shape:", tuple(x_tensor.shape))
     print("y_labels shape:", tuple(y_tensor.shape))
     print("grid_positions shape:", tuple(positions_tensor.shape))
-    print("num_classes:", int(y_tensor.max().item() + 1))
+    num_classes = int(y_tensor.max().item() + 1)
+    print("num_classes:", num_classes)
 
     for k in K_VALUES:
         train_single_k(
@@ -772,6 +816,7 @@ def main() -> None:
             x_tensor=x_tensor,
             y_tensor=y_tensor,
             positions_tensor=positions_tensor,
+            num_classes=num_classes,
         )
 
     print()
