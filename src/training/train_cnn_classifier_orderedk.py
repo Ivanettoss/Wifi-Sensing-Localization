@@ -21,11 +21,41 @@ if str(SRC_DIR) not in sys.path:
 from models.cnn import CNN2DClassifier, count_trainable_parameters
 
 
+# Choose the dataset to train on: "meeting_room" or "lab"
+DATASET_NAME = "lab"
+
+DATASET_CONFIGS = {
+    "meeting_room": {
+        "dataset_file": "meeting_room_full_windows_30.npz",
+        "split_prefix": "meeting_room_ordered",
+        "dataset_label": "meeting_room_full_windows_30",
+        "experiment_prefix": "ordered_k",
+        "model_prefix": "meeting_room_ordered",
+        "summary_csv": "fingerprint_classification_ordered_k_results.csv",
+    },
+    "lab": {
+        "dataset_file": "lab_full_windows_30.npz",
+        "split_prefix": "lab_ordered",
+        "dataset_label": "lab_full_windows_30",
+        "experiment_prefix": "lab_ordered_k",
+        "model_prefix": "lab_ordered",
+        "summary_csv": "fingerprint_classification_lab_ordered_k_results.csv",
+    },
+}
+
+if DATASET_NAME not in DATASET_CONFIGS:
+    raise ValueError(
+        f"Invalid DATASET_NAME: {DATASET_NAME}. "
+        f"Choose one of: {list(DATASET_CONFIGS.keys())}"
+    )
+
+CONFIG = DATASET_CONFIGS[DATASET_NAME]
+
 DATASET_FILE = (
     PROJECT_ROOT
     / "data"
     / "processed"
-    / "meeting_room_full_windows_30.npz"
+    / CONFIG["dataset_file"]
 )
 
 OUTPUT_MODELS_DIR = PROJECT_ROOT / "outputs" / "models"
@@ -36,21 +66,24 @@ K_VALUES = [1, 5, 15, 25, 35]
 
 SUMMARY_CSV_FILE = (
     OUTPUT_LOGS_DIR
-    / "fingerprint_classification_ordered_k_results.csv"
+    / CONFIG["summary_csv"]
 )
 
 
+def get_experiment_name(k: int) -> str:
+    return f"{CONFIG['experiment_prefix']}{k}_seed42"
+
+
 def get_split_file(k: int) -> Path:
-    return OUTPUT_SPLITS_DIR / f"meeting_room_ordered_k{k}_split.npz"
+    return OUTPUT_SPLITS_DIR / f"{CONFIG['split_prefix']}_k{k}_split.npz"
 
 
 def get_best_model_file(k: int) -> Path:
-    return OUTPUT_MODELS_DIR / f"cnn_meeting_room_ordered_k{k}_best.pt"
+    return OUTPUT_MODELS_DIR / f"cnn_{CONFIG['model_prefix']}_k{k}_best.pt"
 
 
 def get_metrics_file(k: int) -> Path:
-    return OUTPUT_LOGS_DIR / f"cnn_meeting_room_ordered_k{k}_metrics.json"
-
+    return OUTPUT_LOGS_DIR / f"cnn_{CONFIG['model_prefix']}_k{k}_metrics.json"
 
 RANDOM_SEED = 42
 
@@ -60,11 +93,11 @@ VAL_WINDOWS_PER_CLASS = 5
 TEST_WINDOWS_PER_CLASS = 10
 
 BATCH_SIZE = 64
-MAX_EPOCHS = 50
+MAX_EPOCHS = 40
 LEARNING_RATE = 1e-3
 DROPOUT_RATE = 0.3
 
-EARLY_STOPPING_PATIENCE = 7
+EARLY_STOPPING_PATIENCE = 6
 MIN_DELTA = 1e-6
 
 
@@ -146,6 +179,9 @@ def load_split_indices(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load ordered-K train/validation/test split indices.
+
+    The standard split keys are:
+        train_indices / val_indices / test_indices
     """
 
     if not split_file.exists():
@@ -154,9 +190,9 @@ def load_split_indices(
     split_data = np.load(split_file)
 
     required_keys = {
-        "train_idx",
-        "val_idx",
-        "test_idx",
+        "train_indices",
+        "val_indices",
+        "test_indices",
     }
 
     if not required_keys.issubset(set(split_data.files)):
@@ -165,14 +201,13 @@ def load_split_indices(
             f"Available keys: {split_data.files}"
         )
 
-    train_indices = split_data["train_idx"]
-    val_indices = split_data["val_idx"]
-    test_indices = split_data["test_idx"]
+    train_indices = split_data["train_indices"]
+    val_indices = split_data["val_indices"]
+    test_indices = split_data["test_indices"]
 
     print(f"Loaded ordered-K split from: {split_file}")
 
     return train_indices, val_indices, test_indices
-
 
 def train_one_epoch(
     model: nn.Module,
@@ -412,6 +447,7 @@ def train_single_k(
     print("=" * 80)
     print(f"CNN ORDERED-K CLASSIFIER TRAINING | K={k}")
     print("=" * 80)
+    print(f"experiment: {get_experiment_name(k)}")
     print(f"device: {device}")
     print(f"dataset file: {DATASET_FILE}")
     print(f"split file: {split_file}")
@@ -591,10 +627,11 @@ def train_single_k(
             torch.save(
                 {
                     "model_state_dict": best_model_state_dict,
+                    "dataset_name": DATASET_NAME,
+                    "experiment": get_experiment_name(k),
                     "input_channels": input_channels,
                     "num_classes": num_classes,
                     "k": k,
-                    "experiment": f"ordered_k{k}_seed42",
                     "train_mean": train_mean,
                     "train_std": train_std,
                     "class_grid_positions": class_grid_positions_np,
@@ -649,7 +686,8 @@ def train_single_k(
 
     metrics_output = {
         "model_name": "CNN",
-        "experiment": f"ordered_k{k}_seed42",
+        "dataset_name": DATASET_NAME,
+        "experiment": get_experiment_name(k),
         "k": k,
         "dataset_file": str(DATASET_FILE),
         "best_model_file": str(best_model_file),
@@ -694,8 +732,8 @@ def train_single_k(
     summary_row = {
         "model": "CNN",
         "k": k,
-        "dataset": "meeting_room_full_windows_30",
-        "experiment": f"ordered_k{k}_seed42",
+        "dataset": CONFIG["dataset_label"],
+        "experiment": get_experiment_name(k),
         "split_file": str(split_file),
         "best_model_file": str(best_model_file),
         "num_classes": num_classes,
@@ -742,6 +780,8 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("CNN ORDERED-K CLASSIFIER TRAINING")
+    print(f"dataset name: {DATASET_NAME}")
+    print(f"summary csv: {SUMMARY_CSV_FILE}")
     print(f"device: {device}")
     print(f"dataset file: {DATASET_FILE}")
     print(f"k values: {K_VALUES}")
